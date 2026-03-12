@@ -77,25 +77,26 @@ function isValidInn(inn) {
 }
 
 function buildQRString(payerInn, amountRub) {
-  const sumInKopecks = Math.round(amountRub * 100);
+
+  const sum = Math.round(amountRub * 100);
 
   return [
     "ST00012",
-    `Name=${PAYMENT.name}`,
-    `PersonalAcc=${PAYMENT.account}`,
-    `BankName=${PAYMENT.bank}`,
-    `BIC=${PAYMENT.bic}`,
-    `CorrespAcc=${PAYMENT.corr}`,
-    `PayeeINN=${PAYMENT.inn}`,
-    `KPP=${PAYMENT.kpp}`,
-    `Purpose=${PAYMENT.purpose}`,
+    "Name=МЕЖРЕГИОНАЛЬНОЕ ОПЕРАЦИОННОЕ УФК (ФТС РОССИИ)",
+    "PersonalAcc=03100643000000019502",
+    "BankName=Операционный департамент Банка России",
+    "BIC=024501901",
+    "CorrespAcc=40102810045370000002",
+    "PayeeINN=7730176610",
+    "KPP=773001001",
+    "CBC=15301061301010000510",
+    "OKTMO=45328000",
+    "PaytReason=00",
+    "DrawerStatus=16",
+    "TaxPaytKind=00",
+    "Purpose=Авансовые платежи в счет будущих таможенных и иных платежей",
     `PayerINN=${payerInn}`,
-    `Sum=${sumInKopecks}`,
-    `CBC=${PAYMENT.kbk}`,
-    `OKTMO=${PAYMENT.oktmo}`,
-    `PaytReason=${PAYMENT.paytReason}`,
-    `DrawerStatus=${PAYMENT.payerStatus}`,
-    `TaxPaytKind=${PAYMENT.taxPaytKind}`
+    `Sum=${sum}`
   ].join("|");
 }
 
@@ -218,3 +219,4 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log("=== QR BOT V2 ===");
   console.log(`Listening on 0.0.0.0:${PORT}`);
 });
+
