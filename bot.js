@@ -1,4 +1,3 @@
-console.log("=== NEW QR FLOW ===", text);
 import express from "express";
 import QRCode from "qrcode";
 
@@ -8,10 +7,10 @@ app.use(express.json());
 const TOKEN = process.env.TOKEN;
 const TELEGRAM = `https://api.telegram.org/bot${TOKEN}`;
 
-// временное хранение шага пользователя
+// Храним шаги пользователя в памяти
 const userState = new Map();
 
-// постоянные реквизиты
+// Постоянные реквизиты
 const PAYMENT = {
   name: "МЕЖРЕГИОНАЛЬНОЕ ОПЕРАЦИОННОЕ УФК (ФТС РОССИИ)",
   inn: "7730176610",
@@ -22,18 +21,19 @@ const PAYMENT = {
   corr: "40102810045370000002",
   kbk: "15301061301010000510",
   oktmo: "45328000",
-  purpose:
-    "Авансовые платежи в счет будущих таможенных и иных платежей",
-  customsCode: "10700000",
+  purpose: "Авансовые платежи в счет будущих таможенных и иных платежей",
   payerStatus: "16",
   paytReason: "00",
-  category: "00"
+  taxPaytKind: "00",
+  customsCode: "10700000"
 };
 
 async function sendMessage(chatId, text) {
   const response = await fetch(`${TELEGRAM}/sendMessage`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json"
+    },
     body: JSON.stringify({
       chat_id: chatId,
       text
@@ -47,7 +47,9 @@ async function sendMessage(chatId, text) {
 async function sendPhoto(chatId, photo, caption = "") {
   const response = await fetch(`${TELEGRAM}/sendPhoto`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json"
+    },
     body: JSON.stringify({
       chat_id: chatId,
       photo,
@@ -93,7 +95,7 @@ function buildQRString(payerInn, amountRub) {
     `OKTMO=${PAYMENT.oktmo}`,
     `PaytReason=${PAYMENT.paytReason}`,
     `DrawerStatus=${PAYMENT.payerStatus}`,
-    `TaxPaytKind=${PAYMENT.category}`
+    `TaxPaytKind=${PAYMENT.taxPaytKind}`
   ].join("|");
 }
 
@@ -104,6 +106,7 @@ app.get("/", (req, res) => {
 app.post("/", async (req, res) => {
   try {
     const message = req.body?.message;
+
     if (!message) {
       return res.sendStatus(200);
     }
@@ -111,11 +114,12 @@ app.post("/", async (req, res) => {
     const chatId = message.chat?.id;
     const text = (message.text || "").trim();
 
+    console.log("Incoming update:", JSON.stringify(req.body));
+    console.log("Incoming text:", text);
+
     if (!chatId || !text) {
       return res.sendStatus(200);
     }
-
-    console.log("Incoming text:", text);
 
     if (!TOKEN) {
       console.error("TOKEN is missing");
@@ -124,10 +128,12 @@ app.post("/", async (req, res) => {
 
     if (text === "/start" || text === "/new") {
       userState.set(chatId, { step: "wait_inn" });
+
       await sendMessage(
         chatId,
-        "Введите ИНН плательщика."
+        "Здравствуйте! Для формирования QR-кода введите ИНН плательщика."
       );
+
       return res.sendStatus(200);
     }
 
@@ -136,7 +142,7 @@ app.post("/", async (req, res) => {
     if (!state) {
       await sendMessage(
         chatId,
-        'Нажмите /start, чтобы сформировать QR-код.'
+        "Нажмите /start, чтобы сформировать QR-код."
       );
       return res.sendStatus(200);
     }
@@ -159,6 +165,7 @@ app.post("/", async (req, res) => {
         chatId,
         "Введите сумму платежа в рублях. Например: 15000 или 15000,50"
       );
+
       return res.sendStatus(200);
     }
 
@@ -191,7 +198,7 @@ app.post("/", async (req, res) => {
 
       await sendMessage(
         chatId,
-        "Готово. Для нового QR снова введите ИНН плательщика или нажмите /new"
+        "Готово. Для нового QR-кода введите следующий ИНН или нажмите /new"
       );
 
       return res.sendStatus(200);
