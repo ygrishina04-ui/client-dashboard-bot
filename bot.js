@@ -1,16 +1,9 @@
 import express from "express";
 
-const TOKEN = process.env.TOKEN;
-
-if (!TOKEN) {
-  console.error("TOKEN is missing");
-  process.exit(1);
-}
-
-const TELEGRAM = `https://api.telegram.org/bot${TOKEN}`;
 const app = express();
-
 app.use(express.json());
+
+const TOKEN = process.env.TOKEN;
 
 app.get("/", (req, res) => {
   res.status(200).send("Bot is running");
@@ -18,8 +11,9 @@ app.get("/", (req, res) => {
 
 app.post("/", async (req, res) => {
   try {
-    const message = req.body?.message;
+    console.log("Webhook body:", JSON.stringify(req.body));
 
+    const message = req.body?.message;
     if (!message) {
       return res.sendStatus(200);
     }
@@ -32,7 +26,12 @@ app.post("/", async (req, res) => {
     }
 
     if (text === "/start") {
-      const tgResponse = await fetch(`${TELEGRAM}/sendMessage`, {
+      if (!TOKEN) {
+        console.error("TOKEN is missing");
+        return res.sendStatus(200);
+      }
+
+      const response = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -43,20 +42,18 @@ app.post("/", async (req, res) => {
         })
       });
 
-      const tgData = await tgResponse.text();
-      console.log("Telegram response:", tgData);
+      const data = await response.text();
+      console.log("Telegram response:", data);
     }
 
     return res.sendStatus(200);
   } catch (error) {
-    console.error("Webhook error:", error);
+    console.error("POST / crashed:", error);
     return res.sendStatus(200);
   }
 });
 
-const PORT = Number(process.env.PORT) || 3000;
-
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server started on port ${PORT}`);
 });
-
