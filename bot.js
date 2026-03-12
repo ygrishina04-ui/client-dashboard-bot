@@ -8,7 +8,6 @@ const app = express();
 app.use(express.json());
 
 app.post("/", async (req, res) => {
-
   const message = req.body.message;
 
   if (!message) {
@@ -19,7 +18,6 @@ app.post("/", async (req, res) => {
   const text = message.text;
 
   if (text === "/start") {
-
     await fetch(`${TELEGRAM}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -28,11 +26,15 @@ app.post("/", async (req, res) => {
         text: "Бот работает 🚀"
       })
     });
-
   }
 
   res.sendStatus(200);
-
 });
 
-app.listen(process.env.PORT || 3000);
+app.get("/", (req, res) => {
+  res.send("Bot is running");
+});
+
+app.listen(process.env.PORT || 3000, () => {
+  console.log("Server started");
+});
