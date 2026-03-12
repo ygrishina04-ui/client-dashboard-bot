@@ -1,3 +1,4 @@
+console.log("=== NEW QR FLOW ===", text);
 import express from "express";
 import QRCode from "qrcode";
 
@@ -207,5 +208,6 @@ app.post("/", async (req, res) => {
 const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, "0.0.0.0", () => {
+  console.log("=== QR BOT V2 ===");
   console.log(`Listening on 0.0.0.0:${PORT}`);
 });
