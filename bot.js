@@ -44,17 +44,21 @@ async function sendMessage(chatId, text) {
   console.log("sendMessage:", data);
 }
 
-async function sendPhoto(chatId, photo, caption = "") {
+async function sendPhoto(chatId, base64Image, caption = "") {
+
+  const base64 = base64Image.split(",")[1];
+
+  const formData = new FormData();
+  formData.append("chat_id", chatId);
+  formData.append("caption", caption);
+
+  const buffer = Buffer.from(base64, "base64");
+
+  formData.append("photo", new Blob([buffer]), "qr.png");
+
   const response = await fetch(`${TELEGRAM}/sendPhoto`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      chat_id: chatId,
-      photo,
-      caption
-    })
+    body: formData
   });
 
   const data = await response.text();
@@ -219,4 +223,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log("=== QR BOT V2 ===");
   console.log(`Listening on 0.0.0.0:${PORT}`);
 });
+
 
