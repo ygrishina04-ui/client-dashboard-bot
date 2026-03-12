@@ -1,0 +1,38 @@
+import express from "express";
+import fetch from "node-fetch";
+
+const TOKEN = process.env.TOKEN;
+const TELEGRAM = `https://api.telegram.org/bot${TOKEN}`;
+
+const app = express();
+app.use(express.json());
+
+app.post("/", async (req, res) => {
+
+  const message = req.body.message;
+
+  if (!message) {
+    return res.sendStatus(200);
+  }
+
+  const chatId = message.chat.id;
+  const text = message.text;
+
+  if (text === "/start") {
+
+    await fetch(`${TELEGRAM}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: "Бот работает 🚀"
+      })
+    });
+
+  }
+
+  res.sendStatus(200);
+
+});
+
+app.listen(process.env.PORT || 3000);
