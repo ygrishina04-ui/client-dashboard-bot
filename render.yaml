@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: python3 -m pip install -r requirements.txt
-    startCommand: python3 main.py
+    startCommand: python3 -m pip install -r requirements.txt && python3 main.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.7
