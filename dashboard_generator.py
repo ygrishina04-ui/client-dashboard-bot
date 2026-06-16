@@ -123,9 +123,14 @@ def build_dashboard(order_path: str, requests_path: str, portfolio_path: str, ou
     for s in REQUEST_STATUSES:
         if s not in req_mgr.columns: req_mgr[s] = 0
     req_mgr = req_mgr[['Владелец записи'] + REQUEST_STATUSES].rename(columns={'Владелец записи':'manager'})
-    due_col = 'Дата выполнения' if 'Дата выполнения' in req.columns else 'Дата выполнения запроса'
+    due_col = 'Дата выполнения запроса' if 'Дата выполнения запроса' in req.columns else 'Дата выполнения'
     req[due_col] = pd.to_datetime(req[due_col], errors='coerce')
-    attention_req = req[(req['Статус запроса']=='Ком предложение отправлено') & (req[due_col].notna()) & (req[due_col] <= pd.Timestamp(today) - pd.Timedelta(days=3))].copy()
+
+    attention_req = req[
+    (req['Статус запроса'] == 'Ком предложение отправлено') &
+    (req[due_col].notna()) &
+    (req[due_col] <= pd.Timestamp(today) - pd.Timedelta(days=3))
+    ].copy()
     attention_req['_days_overdue'] = (pd.Timestamp(today).normalize() - attention_req[due_col].dt.normalize()).dt.days
 
     # PORTFOLIO
