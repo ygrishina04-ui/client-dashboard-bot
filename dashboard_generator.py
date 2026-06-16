@@ -5,23 +5,25 @@ from pathlib import Path
 from typing import Dict, Any, List
 import pandas as pd
 
-ACTIVE_ORDER_STATUSES = {
-    'В работе',
-    'До границы',
-    'ЖД',
-    'Жд прямое',
-    'Море',
-    'Ожидание выхода по ЖД',
-    'Оплата за товар',
-    'Размещение',
-    'Порт',
-    'ПТД',
-    'Новый',
-    'Букинг',
-    'Авто прямое',
-    'Автовывоз',
-    'Авиа'
+EXCLUDED_ORDER_STATUSES = {
+    'выполнен',
+    'выпуск',
+    'отменен',
+    'к закрытию'
 }
+
+orders['Статус заказа'] = (
+    orders['Статус заказа']
+    .fillna('')
+    .astype(str)
+    .str.strip()
+    .str.lower()
+)
+
+active_orders = orders[
+    ~orders['Статус заказа'].isin(EXCLUDED_ORDER_STATUSES)
+].copy()
+
 REQUEST_STATUSES = ['Новый','Ком предложение отправлено','Feed-back получен','В работе','Заявка получена']
 
 CATEGORY_RULES = {
