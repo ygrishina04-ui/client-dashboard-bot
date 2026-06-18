@@ -132,8 +132,16 @@ async def start_web_app():
     await site.start()
 
 async def main():
+    print("WEB APP STARTING", flush=True)
     await start_web_app()
-    await dp.start_polling(bot)
+    print("WEB APP STARTED", flush=True)
+
+    try:
+        print("BOT POLLING STARTING", flush=True)
+        await dp.start_polling(bot)
+    except Exception as e:
+        print(f"BOT POLLING ERROR: {e}", flush=True)
+        raise
 
 if __name__ == '__main__':
     asyncio.run(main())
