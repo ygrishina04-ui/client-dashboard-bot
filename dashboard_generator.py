@@ -214,7 +214,8 @@ def build_dashboard(
         .agg(
             orders=('Номер заказа', 'count'),
             clients=('Партнер', pd.Series.nunique),
-            units=('_units', 'sum')
+            units=('_units', 'sum'),
+            profit_work=('_profit', 'sum')
         )
         .reset_index()
         .rename(columns={'Оперативный менеджер': 'manager'})
@@ -429,6 +430,7 @@ def render_html(d: Dict[str, Any]) -> str:
         f"<td>{r['orders']}</td>"
         f"<td>{r['clients']}</td>"
         f"<td>{int(r['units'])}</td>"
+        f"<td>{fmt_money(r.get('profit_work', 0))}</td>"
         f"<td>{fmt_money(r.get('profit_month', 0))}</td>"
         f"</tr>"
         for r in d['orders']['by_manager']
@@ -777,7 +779,8 @@ th {{
                     <th>Заказы</th>
                     <th>Клиенты</th>
                     <th>Гр. ед.</th>
-                    <th>План. прибыль текущего месяца</th>
+                    <th>План прибыль по заказам в работе</th>
+                    <th>План прибыль текущего месяца</th>
                 </tr>
             </thead>
             <tbody>
