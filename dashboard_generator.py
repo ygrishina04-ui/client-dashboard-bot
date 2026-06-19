@@ -242,44 +242,68 @@ def build_dashboard(
     # =====================
     # REQUESTS
     # =====================
-
+    
     req['Статус запроса'] = req['Статус запроса'].apply(clean_str)
+    
+    req['_request_date'] = pd.to_datetime(req['Дата запроса'], errors='coerce')
 
+    current_month_start = pd.Timestamp(today).replace(day=1).normalize()
+    next_month_start = current_month_start + pd.DateOffset(months=1)
+    
+    current_month_requests = req[
+        (req['_request_date'] >= current_month_start)
+        & (req['_request_date'] < next_month_start)
+    ].copy()
+    
     req_status_counts = {
         s: int((req['Статус запроса'] == s).sum())
         for s in REQUEST_STATUSES
     }
-
+    
     req_mgr = (
         req.groupby(['Владелец записи', 'Статус запроса'])
         .size()
         .unstack(fill_value=0)
         .reset_index()
     )
-
+    
     for s in REQUEST_STATUSES:
         if s not in req_mgr.columns:
             req_mgr[s] = 0
-
+    
     req_mgr = (
         req_mgr[['Владелец записи'] + REQUEST_STATUSES]
         .rename(columns={'Владелец записи': 'manager'})
     )
-
+    
+    req_month_by_manager = (
+        current_month_requests
+        .groupby('Владелец записи', dropna=False)
+        .size()
+        .reset_index(name='requests_month')
+        .rename(columns={'Владелец записи': 'manager'})
+    )
+    
+    req_mgr = (
+        req_mgr
+        .merge(req_month_by_manager, on='manager', how='left')
+        .fillna({'requests_month': 0})
+    )
+    
     due_col = (
         'Дата выполнения запроса'
         if 'Дата выполнения запроса' in req.columns
         else 'Дата выполнения'
     )
-
+    
     req[due_col] = pd.to_datetime(req[due_col], errors='coerce')
-
+    
     attention_req = req[
         (req['Статус запроса'] == 'Ком предложение отправлено')
         & (req[due_col].notna())
         & (req[due_col] <= pd.Timestamp(today) - pd.Timedelta(days=3))
     ].copy()
-
+    
     attention_req['_days_overdue'] = (
         pd.Timestamp(today).normalize()
         - attention_req[due_col].dt.normalize()
