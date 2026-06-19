@@ -819,8 +819,19 @@ th {{
     <div class='grid two'>
         <div class='card'>
             <h2>Воронка запросов</h2>
-            {status_cards}
-        </div>
+
+    <div class='stage'>
+        <span>Итого заведено запросов</span>
+        <b>{d['requests']['total']}</b>
+    </div>
+
+    <div class='stage'>
+        <span>Запросов текущего месяца</span>
+        <b>{d['requests']['month_total']}</b>
+    </div>
+
+    {status_cards}
+    </div>
 
         <div class='card'>
             <h2>Без обратной связи</h2>
