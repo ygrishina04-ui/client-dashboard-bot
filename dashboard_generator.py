@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import json
 import math
 from datetime import datetime
@@ -34,7 +35,10 @@ CATEGORY_RULES = {
 }
 
 BASE_DIR = Path(__file__).resolve().parent
-OUTPUT_DIR = BASE_DIR / 'output'
+DATA_DIR = Path(os.getenv('DATA_DIR', '/data'))
+DATA_DIR.mkdir(exist_ok=True)
+
+OUTPUT_DIR = DATA_DIR / 'output'
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
@@ -47,12 +51,6 @@ def clean_str(x):
     if pd.isna(x):
         return 'Не указан'
     return str(x).strip()
-
-
-def normalize_status(x):
-    if pd.isna(x):
-        return ''
-    return str(x).strip().lower()
 
 
 def to_date(s):
@@ -78,27 +76,27 @@ def find_profit_col(df: pd.DataFrame) -> str | None:
     cols = list(df.columns)
     normalized = {str(c).strip().lower(): c for c in cols}
 
-    for key in [
+    priority = [
+        'план. прибыль без ндс (логистика)',
+        'план прибыль без ндс (логистика)',
+        'план. прибыль без ндс логистика',
+        'план прибыль без ндс логистика',
         'план. прибыль без ндс',
         'план прибыль без ндс',
-        'плановая прибыль без ндс'
-    ]:
+    ]
+
+    for key in priority:
         if key in normalized:
             return normalized[key]
 
     for c in cols:
         lc = str(c).strip().lower()
+        if 'план' in lc and 'приб' in lc and 'ндс' in lc and 'логист' in lc:
+            return c
+
+    for c in cols:
+        lc = str(c).strip().lower()
         if 'план' in lc and 'приб' in lc and 'ндс' in lc:
-            return c
-
-    for c in cols:
-        lc = str(c).lower()
-        if 'план' in lc and ('приб' in lc or 'доход' in lc):
-            return c
-
-    for c in cols:
-        lc = str(c).lower()
-        if 'доход' in lc or 'приб' in lc:
             return c
 
     return None
@@ -200,17 +198,43 @@ def build_dashboard(
     else:
         active_orders['_units'] = 0
 
-    order_mgr = (
+    active_orders['_order_date'] = pd.to_datetime(active_orders['Дата заказа'], errors='coerce')
+
+    current_month_start = pd.Timestamp(today).replace(day=1).normalize()
+    next_month_start = current_month_start + pd.DateOffset(months=1)
+
+    current_month_orders = active_orders[
+        (active_orders['_order_date'] >= current_month_start)
+        & (active_orders['_order_date'] < next_month_start)
+    ].copy()
+
+    order_mgr_base = (
         active_orders
         .groupby('Оперативный менеджер', dropna=False)
         .agg(
             orders=('Номер заказа', 'count'),
             clients=('Партнер', pd.Series.nunique),
-            units=('_units', 'sum'),
-            profit=('_profit', 'sum')
+            units=('_units', 'sum')
         )
         .reset_index()
         .rename(columns={'Оперативный менеджер': 'manager'})
+    )
+
+    profit_month = (
+        current_month_orders
+        .groupby('Оперативный менеджер', dropna=False)['_profit']
+        .sum()
+        .reset_index()
+        .rename(columns={
+            'Оперативный менеджер': 'manager',
+            '_profit': 'profit_month'
+        })
+    )
+
+    order_mgr = (
+        order_mgr_base
+        .merge(profit_month, on='manager', how='left')
+        .fillna({'profit_month': 0})
         .sort_values('orders', ascending=False)
     )
 
@@ -225,14 +249,12 @@ def build_dashboard(
         for s in REQUEST_STATUSES
     }
 
-    req_mgr = pd.pivot_table(
-        req,
-        index='Владелец записи',
-        columns='Статус запроса',
-        values='Номер записи',
-        aggfunc='count',
-        fill_value=0
-    ).reset_index()
+    req_mgr = (
+        req.groupby(['Владелец записи', 'Статус запроса'])
+        .size()
+        .unstack(fill_value=0)
+        .reset_index()
+    )
 
     for s in REQUEST_STATUSES:
         if s not in req_mgr.columns:
@@ -353,7 +375,7 @@ def build_dashboard(
             'active_count': int(len(active_orders)),
             'active_clients': int(active_orders['Партнер'].nunique()) if 'Партнер' in active_orders else 0,
             'units': int(active_orders['_units'].sum()),
-            'profit': float(active_orders['_profit'].sum()),
+            'profit_month': float(current_month_orders['_profit'].sum()),
             'by_manager': order_mgr.to_dict('records'),
         },
         'requests': {
@@ -407,7 +429,7 @@ def render_html(d: Dict[str, Any]) -> str:
         f"<td>{r['orders']}</td>"
         f"<td>{r['clients']}</td>"
         f"<td>{int(r['units'])}</td>"
-        f"<td>{fmt_money(r['profit'])}</td>"
+        f"<td>{fmt_money(r.get('profit_month', 0))}</td>"
         f"</tr>"
         for r in d['orders']['by_manager']
     )
@@ -581,6 +603,10 @@ select {{
     margin-bottom:16px;
 }}
 
+.three-kpi {{
+    grid-template-columns:repeat(3,1fr);
+}}
+
 .card {{
     background:rgba(255,255,255,.86);
     backdrop-filter:blur(8px);
@@ -685,7 +711,7 @@ th {{
 }}
 
 @media(max-width:900px) {{
-    .kpi,.two {{
+    .kpi,.three-kpi,.two {{
         grid-template-columns:1fr;
     }}
 
@@ -727,7 +753,7 @@ th {{
 
 <section class='section'>
     <h2>1. Заказы</h2>
-    <div class='grid kpi'>
+    <div class='grid kpi three-kpi'>
         <div class='card'>
             <div class='label'>Заказов в работе</div>
             <div class='num blue'>{d['orders']['active_count']}</div>
@@ -740,10 +766,6 @@ th {{
             <div class='label'>Грузовых единиц</div>
             <div class='num pink'>{d['orders']['units']}</div>
         </div>
-        <div class='card'>
-            <div class='label'>План. прибыль без НДС</div>
-            <div class='num'>{fmt_money(d['orders']['profit'])}</div>
-        </div>
     </div>
 
     <div class='card'>
@@ -755,7 +777,7 @@ th {{
                     <th>Заказы</th>
                     <th>Клиенты</th>
                     <th>Гр. ед.</th>
-                    <th>План. прибыль без НДС</th>
+                    <th>План. прибыль текущего месяца</th>
                 </tr>
             </thead>
             <tbody>
