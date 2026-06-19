@@ -145,3 +145,8 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+@dp.message(Command("chatid"))
+async def chatid(message: Message):
+    await message.answer(
+        f"Chat ID: <code>{message.chat.id}</code>"
+    )
