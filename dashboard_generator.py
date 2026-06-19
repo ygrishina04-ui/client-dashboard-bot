@@ -404,6 +404,8 @@ def build_dashboard(
             'by_manager': order_mgr.to_dict('records'),
         },
         'requests': {
+            'total': int(len(req)),
+            'month_total': int(len(current_month_requests)),
             'status_counts': req_status_counts,
             'by_manager': req_mgr.to_dict('records'),
             'attention': attention_req[
