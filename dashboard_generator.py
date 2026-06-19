@@ -275,7 +275,8 @@ def build_dashboard(
         req_mgr[['Владелец записи'] + REQUEST_STATUSES]
         .rename(columns={'Владелец записи': 'manager'})
     )
-    
+
+    req_mgr['requests_total'] = req_mgr[REQUEST_STATUSES].sum(axis=1)
     req_month_by_manager = (
         current_month_requests
         .groupby('Владелец записи', dropna=False)
@@ -465,6 +466,7 @@ def render_html(d: Dict[str, Any]) -> str:
     req_mgr_rows = ''.join(
         "<tr data-manager='" + esc_attr(r['manager']) + "'>"
         "<td>" + str(r['manager']) + "</td>"
+        f"<td>{int(r.get('requests_total', 0))}</td>"
         + ''.join(f"<td>{int(r.get(s, 0))}</td>" for s in REQUEST_STATUSES)
         + "</tr>"
         for r in d['requests']['by_manager']
@@ -825,11 +827,6 @@ th {{
     <div class='stage'>
         <span>Итого заведено запросов</span>
         <b>{d['requests']['total']}</b>
-    </div>
-
-    <div class='stage'>
-        <span>Запросов текущего месяца</span>
-        <b>{d['requests']['month_total']}</b>
     </div>
 
     {status_cards}
