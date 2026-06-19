@@ -35,8 +35,8 @@ CATEGORY_RULES = {
 }
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.getenv('DATA_DIR', '/data'))
-DATA_DIR.mkdir(exist_ok=True)
+
+DATA_DIR = BASE_DIR
 
 OUTPUT_DIR = DATA_DIR / 'output'
 OUTPUT_DIR.mkdir(exist_ok=True)
