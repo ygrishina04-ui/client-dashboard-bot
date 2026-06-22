@@ -8,6 +8,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from dashboard_generator import build_dashboard
+import json
 
 TOKEN = os.getenv('BOT_TOKEN')
 if not TOKEN:
@@ -24,6 +25,7 @@ UPLOADS.mkdir(exist_ok=True)
 OUTPUT_DIR = BASE / 'output'
 OUTPUT_DIR.mkdir(exist_ok=True)
 OUTPUT = OUTPUT_DIR / 'dashboard.html'
+SNOOZE_FILE = OUTPUT_DIR / "snoozed_clients.json"
 
 bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
@@ -108,7 +110,51 @@ async def doc(message: Message):
         )
     except Exception as e:
         await message.answer(f'Не удалось собрать дашборд: <code>{e}</code>')
+async def snooze_client(request):
+    try:
+        data = await request.json()
 
+        client = str(data.get("client", "")).strip()
+        until = str(data.get("until", "")).strip()
+        manager = str(data.get("manager", "")).strip()
+        comment = str(data.get("comment", "")).strip()
+
+        if not client or not until:
+            return web.json_response(
+                {
+                    "ok": False,
+                    "error": "Не указан клиент или дата"
+                },
+                status=400
+            )
+
+        snoozed = load_snoozed_clients()
+
+        snoozed[client] = {
+            "until": until,
+            "manager": manager,
+            "comment": comment
+        }
+
+        save_snoozed_clients(snoozed)
+
+        print(
+            f"SNOOZED: {client} до {until}",
+            flush=True
+        )
+
+        return web.json_response({
+            "ok": True
+        })
+
+    except Exception as e:
+        return web.json_response(
+            {
+                "ok": False,
+                "error": str(e)
+            },
+            status=500
+        )
 async def health(request):
     return web.Response(text='OK')
 
@@ -126,6 +172,7 @@ async def start_web_app():
     app.router.add_get('/', dashboard_page)
     app.router.add_get('/dashboard', dashboard_page)
     app.router.add_get('/health', health)
+    app.router.add_post("/snooze", snooze_client)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', PORT)
@@ -153,4 +200,25 @@ async def debug_all(message: Message):
         f"TYPE={message.chat.type} "
         f"TEXT={message.text}",
         flush=True
+    )
+def load_snoozed_clients():
+    if not SNOOZE_FILE.exists():
+        return {}
+
+    try:
+        return json.loads(
+            SNOOZE_FILE.read_text(encoding="utf-8")
+        )
+    except Exception:
+        return {}
+
+
+def save_snoozed_clients(data: dict):
+    SNOOZE_FILE.write_text(
+        json.dumps(
+            data,
+            ensure_ascii=False,
+            indent=2
+        ),
+        encoding="utf-8"
     )
