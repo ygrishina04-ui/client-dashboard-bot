@@ -257,18 +257,7 @@ def build_dashboard(
 
     # Конверсия:
     # считаем, сколько запросов дошло хотя бы до КП/фидбека/заявки
-    req_mgr['conversion_count'] = (
-        req_mgr['Ком предложение отправлено']
-        + req_mgr['Feed-back получен']
-        + req_mgr['Заявка получена']
-    )
-
-    req_mgr['conversion_percent'] = (
-        req_mgr['conversion_count']
-        / req_mgr['requests_total'].replace(0, pd.NA)
-        * 100
-    ).fillna(0)
-
+    
     due_col = (
         'Дата выполнения запроса'
         if 'Дата выполнения запроса' in req.columns
@@ -446,7 +435,6 @@ def render_html(d: Dict[str, Any]) -> str:
         "<tr data-manager='" + esc_attr(r['manager']) + "'>"
         "<td>" + str(r['manager']) + "</td>"
         f"<td>{int(r.get('requests_total', 0))}</td>"
-        f"<td>{float(r.get('conversion_percent', 0)):.1f}%</td>"
         + ''.join(f"<td>{int(r.get(s, 0))}</td>" for s in REQUEST_STATUSES)
         + "</tr>"
         for r in d['requests']['by_manager']
@@ -843,7 +831,6 @@ th {{
                 <tr>
                     <th>Менеджер</th>
                     <th>Итого заведено запросов</th>
-                    <th>Конверсия в КП/заявку</th>
                     {''.join(f'<th>{s}</th>' for s in REQUEST_STATUSES)}
                 </tr>
             </thead>
