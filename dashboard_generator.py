@@ -545,15 +545,17 @@ def render_html(d: Dict[str, Any]) -> str:
     box-sizing:border-box;
 }}
 
-body {{
+body{
     margin:0;
     font-family:Inter,Arial,sans-serif;
-    background:
-        radial-gradient(circle at top left,#e6f8ff,transparent 32%),
-        radial-gradient(circle at top right,#ffe6f2,transparent 28%),
-        var(--bg);
-    color:var(--dark);
-}}
+    background:linear-gradient(
+        135deg,
+        #cfe8ff 0%,
+        #d9d6ff 45%,
+        #ffd4ea 100%
+    );
+    color:#1f2937;
+}
 
 .wrap {{
     max-width:1440px;
@@ -637,14 +639,14 @@ select {{
     grid-template-columns:repeat(3,1fr);
 }}
 
-.card {{
-    background:rgba(255,255,255,.86);
+.card{
+    background:rgba(255,255,255,.92);
     backdrop-filter:blur(8px);
-    border:1px solid #edf0fa;
-    border-radius:24px;
+    border-radius:20px;
     padding:20px;
-    box-shadow:0 18px 50px rgba(42,56,100,.08);
-}}
+    box-shadow:0 12px 30px rgba(91,33,182,.12);
+    border:1px solid rgba(255,255,255,.5);
+}
 
 .label {{
     font-size:13px;
@@ -696,16 +698,14 @@ th {{
     letter-spacing:.06em;
 }}
 
-.stage {{
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    padding:16px;
-    margin-bottom:10px;
-    border-radius:18px;
-    background:linear-gradient(90deg,#fff,#f7fbff);
-    border:1px solid #eef2fb;
-}}
+.stage{
+    background:linear-gradient(
+        135deg,
+        #eef2ff,
+        #fdf2f8
+    );
+    border:1px solid #dbeafe;
+}
 
 .stage b {{
     font-size:26px;
