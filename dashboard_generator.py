@@ -35,9 +35,7 @@ CATEGORY_RULES = {
 }
 
 BASE_DIR = Path(__file__).resolve().parent
-
 DATA_DIR = BASE_DIR
-
 OUTPUT_DIR = DATA_DIR / 'output'
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -73,31 +71,11 @@ def fmt_money(v):
 
 
 def find_profit_col(df: pd.DataFrame) -> str | None:
-    cols = list(df.columns)
-    normalized = {str(c).strip().lower(): c for c in cols}
+    target = 'План. прибыль без НДС (Наша логистика)'
 
-    priority = [
-        'план. прибыль без ндс (логистика)',
-        'план прибыль без ндс (логистика)',
-        'план. прибыль без ндс логистика',
-        'план прибыль без ндс логистика',
-        'план. прибыль без ндс',
-        'план прибыль без ндс',
-    ]
-
-    for key in priority:
-        if key in normalized:
-            return normalized[key]
-
-    for c in cols:
-        lc = str(c).strip().lower()
-        if 'план' in lc and 'приб' in lc and 'ндс' in lc and 'логист' in lc:
-            return c
-
-    for c in cols:
-        lc = str(c).strip().lower()
-        if 'план' in lc and 'приб' in lc and 'ндс' in lc:
-            return c
+    for col in df.columns:
+        if str(col).strip() == target:
+            return col
 
     return None
 
@@ -188,6 +166,8 @@ def build_dashboard(
 
     profit_col = find_profit_col(orders)
 
+    print(f"Используется колонка прибыли: {profit_col}", flush=True)
+
     if profit_col:
         active_orders['_profit'] = safe_num(active_orders[profit_col])
     else:
@@ -242,69 +222,67 @@ def build_dashboard(
     # =====================
     # REQUESTS
     # =====================
-    
+
     req['Статус запроса'] = req['Статус запроса'].apply(clean_str)
-    
+
     req['_request_date'] = pd.to_datetime(req['Дата запроса'], errors='coerce')
 
-    current_month_start = pd.Timestamp(today).replace(day=1).normalize()
-    next_month_start = current_month_start + pd.DateOffset(months=1)
-    
     current_month_requests = req[
         (req['_request_date'] >= current_month_start)
         & (req['_request_date'] < next_month_start)
     ].copy()
-    
+
     req_status_counts = {
         s: int((req['Статус запроса'] == s).sum())
         for s in REQUEST_STATUSES
     }
-    
+
     req_mgr = (
         req.groupby(['Владелец записи', 'Статус запроса'])
         .size()
         .unstack(fill_value=0)
         .reset_index()
     )
-    
+
     for s in REQUEST_STATUSES:
         if s not in req_mgr.columns:
             req_mgr[s] = 0
-    
+
     req_mgr = (
         req_mgr[['Владелец записи'] + REQUEST_STATUSES]
         .rename(columns={'Владелец записи': 'manager'})
     )
 
     req_mgr['requests_total'] = req_mgr[REQUEST_STATUSES].sum(axis=1)
-    req_month_by_manager = (
-        current_month_requests
-        .groupby('Владелец записи', dropna=False)
-        .size()
-        .reset_index(name='requests_month')
-        .rename(columns={'Владелец записи': 'manager'})
+
+    # Конверсия:
+    # считаем, сколько запросов дошло хотя бы до КП/фидбека/заявки
+    req_mgr['conversion_count'] = (
+        req_mgr['Ком предложение отправлено']
+        + req_mgr['Feed-back получен']
+        + req_mgr['Заявка получена']
     )
-    
-    req_mgr = (
-        req_mgr
-        .merge(req_month_by_manager, on='manager', how='left')
-        .fillna({'requests_month': 0})
-    )
-    
+
+    req_mgr['conversion_percent'] = (
+        req_mgr['conversion_count']
+        / req_mgr['requests_total'].replace(0, pd.NA)
+        * 100
+    ).fillna(0)
+
     due_col = (
         'Дата выполнения запроса'
         if 'Дата выполнения запроса' in req.columns
         else 'Дата выполнения'
     )
-    
+
     req[due_col] = pd.to_datetime(req[due_col], errors='coerce')
-    
+
     attention_req = req[
         (req['Статус запроса'] == 'Ком предложение отправлено')
         & (req[due_col].notna())
         & (req[due_col] <= pd.Timestamp(today) - pd.Timedelta(days=3))
     ].copy()
-    
+
     attention_req['_days_overdue'] = (
         pd.Timestamp(today).normalize()
         - attention_req[due_col].dt.normalize()
@@ -401,6 +379,7 @@ def build_dashboard(
             'active_count': int(len(active_orders)),
             'active_clients': int(active_orders['Партнер'].nunique()) if 'Партнер' in active_orders else 0,
             'units': int(active_orders['_units'].sum()),
+            'profit_work': float(active_orders['_profit'].sum()),
             'profit_month': float(current_month_orders['_profit'].sum()),
             'by_manager': order_mgr.to_dict('records'),
         },
@@ -467,6 +446,7 @@ def render_html(d: Dict[str, Any]) -> str:
         "<tr data-manager='" + esc_attr(r['manager']) + "'>"
         "<td>" + str(r['manager']) + "</td>"
         f"<td>{int(r.get('requests_total', 0))}</td>"
+        f"<td>{float(r.get('conversion_percent', 0)):.1f}%</td>"
         + ''.join(f"<td>{int(r.get(s, 0))}</td>" for s in REQUEST_STATUSES)
         + "</tr>"
         for r in d['requests']['by_manager']
@@ -528,24 +508,24 @@ def render_html(d: Dict[str, Any]) -> str:
 <title>Дашборд клиентского портфеля</title>
 <style>
 :root {{
-    --blue:#5bc7f2;
-    --pink:#ff5fa2;
-    --violet:#8b5cf6;
-    --orange:#ff9f43;
-    --bg:#f7f9ff;
+    --blue:#3498db;
+    --pink:#e84393;
+    --violet:#6c5ce7;
+    --orange:#f39c12;
+    --bg:#eef4ff;
     --dark:#172033;
     --muted:#667085;
     --card:#fff;
-    --red:#ff3b5f;
-    --yellow:#ffbf47;
-    --green:#20c997;
+    --red:#e74c3c;
+    --yellow:#f1c40f;
+    --green:#00b894;
 }}
 
 * {{
     box-sizing:border-box;
 }}
 
-body{
+body {{
     margin:0;
     font-family:Inter,Arial,sans-serif;
     background:linear-gradient(
@@ -555,7 +535,7 @@ body{
         #ffd4ea 100%
     );
     color:#1f2937;
-}
+}}
 
 .wrap {{
     max-width:1440px;
@@ -598,9 +578,9 @@ h1 {{
     margin:16px 0 20px;
     padding:14px 16px;
     border-radius:22px;
-    background:rgba(255,255,255,.78);
+    background:rgba(255,255,255,.82);
     border:1px solid #edf0fa;
-    box-shadow:0 14px 40px rgba(42,56,100,.07);
+    box-shadow:0 14px 40px rgba(42,56,100,.10);
 }}
 
 .toolbar label {{
@@ -639,14 +619,14 @@ select {{
     grid-template-columns:repeat(3,1fr);
 }}
 
-.card{
+.card {{
     background:rgba(255,255,255,.92);
     backdrop-filter:blur(8px);
     border-radius:20px;
     padding:20px;
     box-shadow:0 12px 30px rgba(91,33,182,.12);
     border:1px solid rgba(255,255,255,.5);
-}
+}}
 
 .label {{
     font-size:13px;
@@ -698,14 +678,20 @@ th {{
     letter-spacing:.06em;
 }}
 
-.stage{
+.stage {{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:16px;
+    margin-bottom:10px;
+    border-radius:18px;
     background:linear-gradient(
         135deg,
         #eef2ff,
         #fdf2f8
     );
     border:1px solid #dbeafe;
-}
+}}
 
 .stage b {{
     font-size:26px;
@@ -824,13 +810,13 @@ th {{
         <div class='card'>
             <h2>Воронка запросов</h2>
 
-    <div class='stage'>
-        <span>Итого заведено запросов</span>
-        <b>{d['requests']['total']}</b>
-    </div>
+            <div class='stage'>
+                <span>Итого заведено запросов</span>
+                <b>{d['requests']['total']}</b>
+            </div>
 
-    {status_cards}
-    </div>
+            {status_cards}
+        </div>
 
         <div class='card'>
             <h2>Без обратной связи</h2>
@@ -856,6 +842,8 @@ th {{
             <thead>
                 <tr>
                     <th>Менеджер</th>
+                    <th>Итого заведено запросов</th>
+                    <th>Конверсия в КП/заявку</th>
                     {''.join(f'<th>{s}</th>' for s in REQUEST_STATUSES)}
                 </tr>
             </thead>
