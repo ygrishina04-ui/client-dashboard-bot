@@ -39,6 +39,8 @@ DATA_DIR = BASE_DIR
 OUTPUT_DIR = DATA_DIR / 'output'
 OUTPUT_DIR.mkdir(exist_ok=True)
 
+SNOOZE_FILE = OUTPUT_DIR / 'snoozed_clients.json'
+
 
 def read_excel(path: str) -> pd.DataFrame:
     xls = pd.ExcelFile(path)
@@ -70,6 +72,31 @@ def fmt_money(v):
         return '0 ₽'
 
 
+def format_cell(v):
+    if isinstance(v, pd.Timestamp):
+        return '' if pd.isna(v) else v.strftime('%d.%m.%Y')
+
+    if isinstance(v, float):
+        if math.isnan(v):
+            return ''
+        if abs(v - round(v)) < 0.0001:
+            return str(int(round(v)))
+        return f'{v:.2f}'
+
+    return '' if v is None or str(v) == 'NaT' else str(v)
+
+
+def esc_attr(v):
+    return (
+        str(v)
+        .replace('&', '&amp;')
+        .replace('"', '&quot;')
+        .replace("'", '&#39;')
+        .replace('<', '&lt;')
+        .replace('>', '&gt;')
+    )
+
+
 def find_profit_col(df: pd.DataFrame) -> str | None:
     target = 'План. прибыль без НДС (Наша логистика)'
 
@@ -78,6 +105,41 @@ def find_profit_col(df: pd.DataFrame) -> str | None:
             return col
 
     return None
+
+
+def find_request_number_col(df: pd.DataFrame) -> str | None:
+    variants = [
+        'Номер запроса',
+        '№ запроса',
+        'Номер записи',
+        'ID',
+        'Id',
+        'id'
+    ]
+
+    normalized = {str(c).strip().lower(): c for c in df.columns}
+
+    for v in variants:
+        key = v.strip().lower()
+        if key in normalized:
+            return normalized[key]
+
+    for c in df.columns:
+        lc = str(c).strip().lower()
+        if 'номер' in lc and 'запрос' in lc:
+            return c
+
+    return None
+
+
+def load_snoozed_clients():
+    if not SNOOZE_FILE.exists():
+        return {}
+
+    try:
+        return json.loads(SNOOZE_FILE.read_text(encoding='utf-8'))
+    except Exception:
+        return {}
 
 
 def portfolio_status(row, today: datetime):
@@ -107,31 +169,6 @@ def portfolio_status(row, today: datetime):
         status = 'АКТИВНЫЙ'
 
     return status, days, last_activity
-
-
-def format_cell(v):
-    if isinstance(v, pd.Timestamp):
-        return '' if pd.isna(v) else v.strftime('%d.%m.%Y')
-
-    if isinstance(v, float):
-        if math.isnan(v):
-            return ''
-        if abs(v - round(v)) < 0.0001:
-            return str(int(round(v)))
-        return f'{v:.2f}'
-
-    return '' if v is None or str(v) == 'NaT' else str(v)
-
-
-def esc_attr(v):
-    return (
-        str(v)
-        .replace('&', '&amp;')
-        .replace('"', '&quot;')
-        .replace("'", '&#39;')
-        .replace('<', '&lt;')
-        .replace('>', '&gt;')
-    )
 
 
 def build_dashboard(
@@ -224,7 +261,6 @@ def build_dashboard(
     # =====================
 
     req['Статус запроса'] = req['Статус запроса'].apply(clean_str)
-
     req['_request_date'] = pd.to_datetime(req['Дата запроса'], errors='coerce')
 
     current_month_requests = req[
@@ -255,9 +291,6 @@ def build_dashboard(
 
     req_mgr['requests_total'] = req_mgr[REQUEST_STATUSES].sum(axis=1)
 
-    # Конверсия:
-    # считаем, сколько запросов дошло хотя бы до КП/фидбека/заявки
-    
     due_col = (
         'Дата выполнения запроса'
         if 'Дата выполнения запроса' in req.columns
@@ -276,6 +309,13 @@ def build_dashboard(
         pd.Timestamp(today).normalize()
         - attention_req[due_col].dt.normalize()
     ).dt.days
+
+    request_number_col = find_request_number_col(req)
+
+    if request_number_col:
+        attention_req['_request_number'] = attention_req[request_number_col].apply(format_cell)
+    else:
+        attention_req['_request_number'] = ''
 
     # =====================
     # PORTFOLIO
@@ -332,7 +372,27 @@ def build_dashboard(
 
     port_mgr = port_mgr.sort_values(['lost', 'risk'], ascending=False)
 
+    snoozed = load_snoozed_clients()
+    today_norm = pd.Timestamp(today).normalize()
+
     priority = port[port['_status'].isin(['РИСК', 'LOST'])].copy()
+
+    def is_snoozed(client_name):
+        item = snoozed.get(str(client_name).strip())
+        if not item:
+            return False
+
+        until = pd.to_datetime(item.get('until'), errors='coerce')
+        if pd.isna(until):
+            return False
+
+        return pd.Timestamp(until).normalize() > today_norm
+
+    priority['_snoozed'] = priority['Наименование'].apply(is_snoozed)
+
+    snoozed_active_count = int(priority['_snoozed'].sum())
+
+    priority = priority[~priority['_snoozed']].copy()
 
     def priority_score(r):
         score = r['_days']
@@ -378,8 +438,8 @@ def build_dashboard(
             'status_counts': req_status_counts,
             'by_manager': req_mgr.to_dict('records'),
             'attention': attention_req[
-                ['Компания', 'Владелец записи', 'Статус запроса', due_col, '_days_overdue']
-            ].head(30).to_dict('records')
+                ['Компания', 'Владелец записи', '_request_number', 'Статус запроса', due_col, '_days_overdue']
+            ].head(100).to_dict('records')
         },
         'portfolio': {
             'total': int(len(port)),
@@ -392,6 +452,7 @@ def build_dashboard(
             'a_lost': int(
                 ((port['_status'] == 'LOST') & (port['Группа'].str.upper() == 'A')).sum()
             ),
+            'snoozed_active': snoozed_active_count,
             'by_manager': port_mgr.to_dict('records'),
             'attention': priority[
                 ['Наименование', 'Оперативный менеджер', 'Признак', 'Группа',
@@ -440,14 +501,60 @@ def render_html(d: Dict[str, Any]) -> str:
         for r in d['requests']['by_manager']
     )
 
-    req_attention_rows = ''.join(
-        f"<tr data-manager='{esc_attr(r.get('Владелец записи'))}'>"
-        f"<td>{format_cell(r.get('Компания'))}</td>"
-        f"<td>{format_cell(r.get('Владелец записи'))}</td>"
-        f"<td>{format_cell(r.get('_days_overdue'))}</td>"
-        f"</tr>"
-        for r in d['requests']['attention']
-    )
+    attention_grouped = {}
+
+    for r in d['requests']['attention']:
+        client = format_cell(r.get('Компания'))
+        manager = format_cell(r.get('Владелец записи'))
+
+        key = (client, manager)
+
+        if key not in attention_grouped:
+            attention_grouped[key] = {
+                'client': client,
+                'manager': manager,
+                'count': 0,
+                'max_days': 0,
+                'items': []
+            }
+
+        days = int(r.get('_days_overdue') or 0)
+
+        attention_grouped[key]['count'] += 1
+        attention_grouped[key]['max_days'] = max(
+            attention_grouped[key]['max_days'],
+            days
+        )
+
+        attention_grouped[key]['items'].append({
+            'number': format_cell(r.get('_request_number')),
+            'status': format_cell(r.get('Статус запроса')),
+            'days': days
+        })
+
+    req_attention_rows = ''
+
+    for item in attention_grouped.values():
+        details_rows = ''.join(
+            f"<tr class='detail-row'>"
+            f"<td></td>"
+            f"<td colspan='4'>№ {sub['number']} · {sub['status']} · {sub['days']} дн.</td>"
+            f"</tr>"
+            for sub in item['items']
+        )
+
+        req_attention_rows += (
+            f"<tbody class='attention-group' data-manager='{esc_attr(item['manager'])}'>"
+            f"<tr class='attention-main'>"
+            f"<td><button class='toggle-details'>▶</button></td>"
+            f"<td><b>{item['client']}</b></td>"
+            f"<td>{item['manager']}</td>"
+            f"<td>{item['count']} запр.</td>"
+            f"<td>{item['max_days']} дн.</td>"
+            f"</tr>"
+            f"{details_rows}"
+            f"</tbody>"
+        )
 
     port_mgr_rows = ''.join(
         f"<tr data-manager='{esc_attr(r['manager'])}'>"
@@ -474,7 +581,7 @@ def render_html(d: Dict[str, Any]) -> str:
         manager_name = format_cell(r['Оперативный менеджер'])
 
         att_rows += (
-            f"<tr class='{cls}' data-manager='{esc_attr(r['Оперативный менеджер'])}'>"
+            f"<tr class='{cls}' data-manager='{esc_attr(manager_name)}'>"
             f"<td>{client_name}</td>"
             f"<td>{manager_name}</td>"
             f"<td>{format_cell(r['Признак'])}</td>"
@@ -482,7 +589,7 @@ def render_html(d: Dict[str, Any]) -> str:
             f"<td>{format_cell(r['Количество заказов'])}</td>"
             f"<td>{format_cell(r['_status'])}</td>"
             f"<td>{format_cell(r['_days'])}</td>"
-            f"<td>"
+            f"<td class='snooze-cell'>"
             f"<input type='date' class='snooze-date'> "
             f"<button class='snooze-btn' "
             f"data-client='{esc_attr(client_name)}' "
@@ -491,7 +598,7 @@ def render_html(d: Dict[str, Any]) -> str:
             f"</button>"
             f"</td>"
             f"</tr>"
-    )
+        )
 
     status_cards = ''.join(
         f"<div class='stage'><span>{k}</span><b>{v}</b></div>"
@@ -527,12 +634,7 @@ def render_html(d: Dict[str, Any]) -> str:
 body {{
     margin:0;
     font-family:Inter,Arial,sans-serif;
-    background:linear-gradient(
-        135deg,
-        #cfe8ff 0%,
-        #d9d6ff 45%,
-        #ffd4ea 100%
-    );
+    background:linear-gradient(135deg,#cfe8ff 0%,#d9d6ff 45%,#ffd4ea 100%);
     color:#1f2937;
 }}
 
@@ -684,11 +786,7 @@ th {{
     padding:16px;
     margin-bottom:10px;
     border-radius:18px;
-    background:linear-gradient(
-        135deg,
-        #eef2ff,
-        #fdf2f8
-    );
+    background:linear-gradient(135deg,#eef2ff,#fdf2f8);
     border:1px solid #dbeafe;
 }}
 
@@ -723,6 +821,53 @@ th {{
 
 .hidden-by-filter {{
     display:none!important;
+}}
+
+.toggle-details {{
+    border:0;
+    background:#eef2ff;
+    border-radius:8px;
+    padding:6px 9px;
+    cursor:pointer;
+    font-weight:800;
+}}
+
+.detail-row {{
+    display:none;
+}}
+
+.detail-row td {{
+    background:#f8fafc;
+    color:#475467;
+    font-size:13px;
+}}
+
+.attention-group.open .detail-row {{
+    display:table-row;
+}}
+
+.attention-group.open .toggle-details {{
+    background:#dbeafe;
+}}
+
+.snooze-cell {{
+    white-space:nowrap;
+}}
+
+.snooze-date {{
+    border:1px solid #dde5f3;
+    border-radius:10px;
+    padding:7px;
+}}
+
+.snooze-btn {{
+    border:0;
+    border-radius:10px;
+    padding:8px 10px;
+    background:#6c5ce7;
+    color:white;
+    cursor:pointer;
+    font-weight:700;
 }}
 
 @media(max-width:900px) {{
@@ -823,14 +968,14 @@ th {{
             <table>
                 <thead>
                     <tr>
+                        <th></th>
                         <th>Клиент</th>
                         <th>Менеджер</th>
-                        <th>Дней</th>
+                        <th>Запросов</th>
+                        <th>Макс. дней</th>
                     </tr>
                 </thead>
-                <tbody>
-                    {req_attention_rows}
-                </tbody>
+                {req_attention_rows}
             </table>
         </div>
     </div>
@@ -904,6 +1049,10 @@ th {{
                 <span>Клиенты A в LOST</span>
                 <b class='red'>{d['portfolio']['a_lost']}</b>
             </div>
+            <div class='stage'>
+                <span>Отложены до даты</span>
+                <b class='violet'>{d['portfolio']['snoozed_active']}</b>
+            </div>
         </div>
     </div>
 
@@ -947,6 +1096,15 @@ function applyManagerFilter() {{
 }}
 
 filter.addEventListener('change', applyManagerFilter);
+
+document.querySelectorAll('.toggle-details').forEach(btn => {{
+    btn.addEventListener('click', () => {{
+        const group = btn.closest('.attention-group');
+        group.classList.toggle('open');
+        btn.textContent = group.classList.contains('open') ? '▼' : '▶';
+    }});
+}});
+
 document.querySelectorAll('.snooze-btn').forEach(btn => {{
     btn.addEventListener('click', async () => {{
         const row = btn.closest('tr');
