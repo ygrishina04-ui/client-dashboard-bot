@@ -52,7 +52,27 @@ def dashboard_keyboard():
     if PUBLIC_DASHBOARD_URL:
         buttons.append([InlineKeyboardButton(text='Открыть дашборд', url=PUBLIC_DASHBOARD_URL)])
     return InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
+def load_snoozed_clients():
+    if not SNOOZE_FILE.exists():
+        return {}
 
+    try:
+        return json.loads(
+            SNOOZE_FILE.read_text(encoding="utf-8")
+        )
+    except Exception:
+        return {}
+
+
+def save_snoozed_clients(data):
+    SNOOZE_FILE.write_text(
+        json.dumps(
+            data,
+            ensure_ascii=False,
+            indent=2
+        ),
+        encoding="utf-8"
+    )
 @dp.message(CommandStart())
 async def start(message: Message):
     user_files[message.from_user.id] = {}
@@ -189,10 +209,6 @@ async def main():
     except Exception as e:
         print(f"BOT POLLING ERROR: {e}", flush=True)
         raise
-
-if __name__ == '__main__':
-    asyncio.run(main())
-
 @dp.message()
 async def debug_all(message: Message):
     print(
@@ -201,36 +217,6 @@ async def debug_all(message: Message):
         f"TEXT={message.text}",
         flush=True
     )
-def load_snoozed_clients():
-    if not SNOOZE_FILE.exists():
-        return {}
-
-    try:
-        return json.loads(
-            SNOOZE_FILE.read_text(encoding="utf-8")
-        )
-    except Exception:
-        return {}
-
-
-def load_snoozed_clients():
-    if not SNOOZE_FILE.exists():
-        return {}
-
-    try:
-        return json.loads(
-            SNOOZE_FILE.read_text(encoding="utf-8")
-        )
-    except Exception:
-        return {}
-
-
-def save_snoozed_clients(data):
-    SNOOZE_FILE.write_text(
-        json.dumps(
-            data,
-            ensure_ascii=False,
-            indent=2
-        ),
-        encoding="utf-8"
-    )
+    
+if __name__ == '__main__':
+    asyncio.run(main())
