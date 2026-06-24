@@ -943,42 +943,6 @@ function applyManagerFilter() {{
 }}
 
 filter.addEventListener('change', applyManagerFilter);
-document.querySelectorAll('.snooze-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-        const client = btn.dataset.client;
-        const manager = btn.dataset.manager;
-        const row = btn.closest('tr');
-        const input = row.querySelector('.snooze-date');
-        const until = input.value;
-
-        if (!until) {
-            alert('Выберите дату');
-            return;
-        }
-
-        const response = await fetch('/snooze', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                client: client,
-                manager: manager,
-                until: until,
-                comment: ''
-            })
-        });
-
-        const result = await response.json();
-
-        if (result.ok) {
-            row.style.display = 'none';
-            alert('Клиент отложен до ' + until);
-        } else {
-            alert('Ошибка: ' + result.error);
-        }
-    });
-});
 </script>
 
 </body>
