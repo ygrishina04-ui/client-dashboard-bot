@@ -483,7 +483,6 @@ def render_html(d: Dict[str, Any]) -> str:
                         f"<td>{format_cell(r['_status'])}</td>"
                         f"<td>{format_cell(r['_days'])}</td>"
                         f"<td>"
-                        f"<input type='date' class='snooze-date'> "
                         f"<button class='snooze-btn' "
                         f"data-client='{esc_attr(r['Наименование'])}' "
                         f"data-manager='{esc_attr(r['Оперативный менеджер'])}'>"
