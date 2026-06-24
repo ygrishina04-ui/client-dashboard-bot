@@ -470,16 +470,23 @@ def render_html(d: Dict[str, Any]) -> str:
             else ('lost' if r['_status'] == 'LOST' else 'risk')
         )
 
+        client_name = format_cell(r['Наименование'])
+        manager_name = format_cell(r['Оперативный менеджер'])
+
         att_rows += (
-            f"<tr class='{cls}' data-manager='{esc_attr(r['Оперативный менеджер'])}'>"
-            f"<td>{format_cell(r['Наименование'])}</td>"
-            f"<td>{format_cell(r['Оперативный менеджер'])}</td>"
-            f"<td>{format_cell(r['Признак'])}</td>"
-            f"<td>{format_cell(r['Группа'])}</td>"
-            f"<td>{format_cell(r['Количество заказов'])}</td>"
-            f"<td>{format_cell(r['_status'])}</td>"
-            f"<td>{format_cell(r['_days'])}</td>"
-            f"</tr>"
+                        f"<tr class='{cls}' data-manager='{esc_attr(r['Оперативный менеджер'])}'>"
+                        f"<td>{client_name}</td>"
+                        f"<td>{manager_name}</td>"
+                        f"<td>{format_cell(r['Признак'])}</td>"
+                        f"<td>{format_cell(r['Группа'])}</td>"
+                        f"<td>{format_cell(r['Количество заказов'])}</td>"
+                        f"<td>{format_cell(r['_status'])}</td>"
+                        f"<td>{format_cell(r['_days'])}</td>"
+                        f"<td>"
+                        f"<input type='date' class='snooze-date' data-client='{esc_attr(client_name)}' data-manager='{esc_attr(manager_name)}'> "
+                        f"<button class='snooze-btn' data-client='{esc_attr(client_name)}' data-manager='{esc_attr(manager_name)}'>Отложить</button>"
+                        f"</td>"
+                        f"</tr>"
         )
 
     status_cards = ''.join(
@@ -908,6 +915,7 @@ th {{
                     <th>Заказов</th>
                     <th>Статус</th>
                     <th>Дней без активности</th>
+                    <th>Отложить</th>
                 </tr>
             </thead>
             <tbody>
@@ -935,6 +943,42 @@ function applyManagerFilter() {{
 }}
 
 filter.addEventListener('change', applyManagerFilter);
+document.querySelectorAll('.snooze-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const client = btn.dataset.client;
+        const manager = btn.dataset.manager;
+        const row = btn.closest('tr');
+        const input = row.querySelector('.snooze-date');
+        const until = input.value;
+
+        if (!until) {
+            alert('Выберите дату');
+            return;
+        }
+
+        const response = await fetch('/snooze', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                client: client,
+                manager: manager,
+                until: until,
+                comment: ''
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.ok) {
+            row.style.display = 'none';
+            alert('Клиент отложен до ' + until);
+        } else {
+            alert('Ошибка: ' + result.error);
+        }
+    });
+});
 </script>
 
 </body>
