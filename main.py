@@ -213,7 +213,19 @@ def load_snoozed_clients():
         return {}
 
 
-def save_snoozed_clients(data: dict):
+def load_snoozed_clients():
+    if not SNOOZE_FILE.exists():
+        return {}
+
+    try:
+        return json.loads(
+            SNOOZE_FILE.read_text(encoding="utf-8")
+        )
+    except Exception:
+        return {}
+
+
+def save_snoozed_clients(data):
     SNOOZE_FILE.write_text(
         json.dumps(
             data,
