@@ -1,5 +1,7 @@
 import os
 import asyncio
+import gspread
+from google.oauth2.service_account import Credentials
 from pathlib import Path
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
@@ -20,11 +22,125 @@ PUBLIC_DASHBOARD_URL = os.getenv('DASHBOARD_URL', '').strip()
 PORT = int(os.getenv('PORT', '10000'))
 
 BASE = Path(__file__).resolve().parent
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
 UPLOADS = BASE / 'uploads'
 UPLOADS.mkdir(exist_ok=True)
 OUTPUT_DIR = BASE / 'output'
 OUTPUT_DIR.mkdir(exist_ok=True)
 OUTPUT = OUTPUT_DIR / 'dashboard.html'
+def get_storage_sheet():
+    if not GOOGLE_CREDENTIALS_JSON or not GOOGLE_SHEET_ID:
+        raise RuntimeError("Не заданы GOOGLE_CREDENTIALS_JSON или GOOGLE_SHEET_ID")
+
+    info = json.loads(GOOGLE_CREDENTIALS_JSON)
+
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+    creds = Credentials.from_service_account_info(info, scopes=scopes)
+    client = gspread.authorize(creds)
+
+    return client.open_by_key(GOOGLE_SHEET_ID)
+
+
+def get_or_create_worksheet(spreadsheet, title, headers):
+    try:
+        ws = spreadsheet.worksheet(title)
+    except gspread.WorksheetNotFound:
+        ws = spreadsheet.add_worksheet(title=title, rows=1000, cols=len(headers))
+
+    values = ws.get_all_values()
+
+    if not values:
+        ws.append_row(headers)
+
+    return ws
+
+
+def save_uploaded_file_to_storage(kind, file_id, filename):
+    spreadsheet = get_storage_sheet()
+
+    ws = get_or_create_worksheet(
+        spreadsheet,
+        "FILES",
+        ["kind", "file_id", "filename", "updated_at"]
+    )
+
+    rows = ws.get_all_records()
+    now = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+    row_index = None
+
+    for i, row in enumerate(rows, start=2):
+        if row.get("kind") == kind:
+            row_index = i
+            break
+
+    data = [kind, file_id, filename, now]
+
+    if row_index:
+        ws.update(f"A{row_index}:D{row_index}", [data])
+    else:
+        ws.append_row(data)
+
+
+def save_snooze_to_storage(client, manager, until, comment=""):
+    spreadsheet = get_storage_sheet()
+
+    ws = get_or_create_worksheet(
+        spreadsheet,
+        "SNOOZE",
+        ["client", "manager", "until", "comment", "created_at"]
+    )
+
+    rows = ws.get_all_records()
+    now = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+    row_index = None
+
+    for i, row in enumerate(rows, start=2):
+        if str(row.get("client", "")).strip() == client:
+            row_index = i
+            break
+
+    data = [client, manager, until, comment, now]
+
+    if row_index:
+        ws.update(f"A{row_index}:E{row_index}", [data])
+    else:
+        ws.append_row(data)
+
+
+def load_snoozed_clients():
+    try:
+        spreadsheet = get_storage_sheet()
+        ws = get_or_create_worksheet(
+            spreadsheet,
+            "SNOOZE",
+            ["client", "manager", "until", "comment", "created_at"]
+        )
+
+        result = {}
+
+        for row in ws.get_all_records():
+            client = str(row.get("client", "")).strip()
+
+            if client:
+                result[client] = {
+                    "manager": row.get("manager", ""),
+                    "until": row.get("until", ""),
+                    "comment": row.get("comment", ""),
+                    "created_at": row.get("created_at", "")
+                }
+
+        return result
+
+    except Exception as e:
+        print(f"Не удалось загрузить SNOOZE из Google Sheets: {e}", flush=True)
+        return {}
 SNOOZE_FILE = OUTPUT_DIR / "snoozed_clients.json"
 
 bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -110,6 +226,14 @@ async def doc(message: Message):
     path = UPLOADS / f'{uid}_{kind}_{filename}'
     await bot.download(message.document, destination=path)
     user_files[uid][kind] = str(path)
+    try:
+    save_uploaded_file_to_storage(
+        kind=kind,
+        file_id=message.document.file_id,
+        filename=filename
+    )
+except Exception as e:
+    print(f"Не удалось сохранить file_id в Google Sheets: {e}", flush=True)
 
     missing = [v for k, v in REQUIRED.items() if k not in user_files[uid]]
     if missing:
@@ -150,13 +274,12 @@ async def snooze_client(request):
 
         snoozed = load_snoozed_clients()
 
-        snoozed[client] = {
-            "until": until,
-            "manager": manager,
-            "comment": comment
-        }
-
-        save_snoozed_clients(snoozed)
+        save_snooze_to_storage(
+            client=client,
+            manager=manager,
+            until=until,
+            comment=comment
+        ))
 
         print(
             f"SNOOZED: {client} до {until}",
