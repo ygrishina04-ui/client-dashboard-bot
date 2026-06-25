@@ -638,56 +638,6 @@ body {{
     color:#1f2937;
 }}
 
-.app-shell {{
-    display:grid;
-    grid-template-columns:260px 1fr;
-    min-height:100vh;
-}}
-
-.sidebar {{
-    background:#172033;
-    color:white;
-    padding:24px 18px;
-    position:sticky;
-    top:0;
-    height:100vh;
-}}
-
-.side-logo {{
-    font-size:22px;
-    font-weight:850;
-    margin-bottom:28px;
-}}
-
-.nav-section {{
-    margin-bottom:18px;
-}}
-
-.nav-item {{
-    padding:12px 14px;
-    border-radius:14px;
-    color:#dbeafe;
-    font-weight:700;
-    margin-bottom:6px;
-}}
-
-.nav-item.active {{
-    background:linear-gradient(135deg,#3498db,#6c5ce7);
-    color:white;
-    box-shadow:0 10px 24px rgba(52,152,219,.25);
-}}
-
-.nav-sub {{
-    padding-left:34px;
-    color:#cbd5e1;
-    font-size:14px;
-    line-height:1.9;
-}}
-
-.main-area {{
-    min-width:0;
-}}
-
 .wrap {{
     max-width:1440px;
     margin:0 auto;
@@ -937,51 +887,14 @@ th {{
 </style>
 </head>
 <body>
-
-<div class='app-shell'>
-
-<aside class='sidebar'>
-    <div class='side-logo'>Дашборд Инвиктика</div>
-
-    <div class='nav-section'>
-        <div class='nav-item'>🏠 Главная</div>
-    </div>
-
-    <div class='nav-section'>
-        <div class='nav-item active'>👥 Клиентский отдел</div>
-        <div class='nav-sub'>
-            • Заказы<br>
-            • Запросы<br>
-            • Портфель
-        </div>
-    </div>
-
-    <div class='nav-section'>
-        <div class='nav-item'>🚢 Логистика</div>
-    </div>
-
-    <div class='nav-section'>
-        <div class='nav-item'>📑 Таможня</div>
-    </div>
-
-    <div class='nav-section'>
-        <div class='nav-item'>📈 Отдел продаж</div>
-    </div>
-
-    <div class='nav-section'>
-        <div class='nav-item'>⚙️ Настройки</div>
-    </div>
-</aside>
-
-<main class='main-area'>
 <div class='wrap'>
 
 <div class='hero'>
     <div>
-        <h1>Дашборд Инвиктика</h1>
+        <h1>Клиентский портфель · live dashboard</h1>
         <div class='sub'>Обновлено: {d['generated_at']} · источник прибыли: {d['profit_col']}</div>
     </div>
-    <div class='badge'>Клиентский отдел</div>
+    <div class='badge'>INVCTC · Client Control Center</div>
 </div>
 
 <div class='toolbar'>
@@ -1230,10 +1143,6 @@ document.querySelectorAll('.snooze-btn').forEach(btn => {{
     }});
 }});
 </script>
-
-</main>
-
-</div>
 
 </body>
 </html>
