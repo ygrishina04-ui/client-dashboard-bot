@@ -217,27 +217,38 @@ async def reset(message: Message):
 async def doc(message: Message):
     uid = message.from_user.id
     user_files.setdefault(uid, {})
+
     filename = message.document.file_name or 'file.xlsx'
     kind = detect_kind(filename, message.caption or '')
+
     if not kind:
-        await message.answer('Не поняла тип файла. В подписи напишите: <b>заказы</b> / <b>запросы</b> / <b>портфель</b>.')
+        await message.answer(
+            'Не поняла тип файла. В подписи напишите: '
+            '<b>заказы</b> / <b>запросы</b> / <b>портфель</b>.'
+        )
         return
 
     path = UPLOADS / f'{uid}_{kind}_{filename}'
     await bot.download(message.document, destination=path)
+
     user_files[uid][kind] = str(path)
+
     try:
-    save_uploaded_file_to_storage(
-        kind=kind,
-        file_id=message.document.file_id,
-        filename=filename
-    )
-except Exception as e:
-    print(f"Не удалось сохранить file_id в Google Sheets: {e}", flush=True)
+        save_uploaded_file_to_storage(
+            kind=kind,
+            file_id=message.document.file_id,
+            filename=filename
+        )
+    except Exception as e:
+        print(f"Не удалось сохранить file_id в Google Sheets: {e}", flush=True)
 
     missing = [v for k, v in REQUIRED.items() if k not in user_files[uid]]
+
     if missing:
-        await message.answer(f'Файл <b>{REQUIRED[kind]}</b> принят. Осталось прислать: {", ".join(missing)}.')
+        await message.answer(
+            f'Файл <b>{REQUIRED[kind]}</b> принят. '
+            f'Осталось прислать: {", ".join(missing)}.'
+        )
         return
 
     try:
@@ -247,13 +258,17 @@ except Exception as e:
             portfolio_path=user_files[uid]['portfolio'],
             output_path=str(OUTPUT)
         )
+
         await message.answer_document(
             FSInputFile(OUTPUT),
             caption='Дашборд обновлен ✅',
             reply_markup=dashboard_keyboard()
         )
+
     except Exception as e:
         await message.answer(f'Не удалось собрать дашборд: <code>{e}</code>')
+
+
 async def snooze_client(request):
     try:
         data = await request.json()
@@ -272,23 +287,16 @@ async def snooze_client(request):
                 status=400
             )
 
-        snoozed = load_snoozed_clients()
-
         save_snooze_to_storage(
             client=client,
             manager=manager,
             until=until,
             comment=comment
-        ))
-
-        print(
-            f"SNOOZED: {client} до {until}",
-            flush=True
         )
 
-        return web.json_response({
-            "ok": True
-        })
+        print(f"SNOOZED: {client} до {until}", flush=True)
+
+        return web.json_response({"ok": True})
 
     except Exception as e:
         return web.json_response(
@@ -298,8 +306,11 @@ async def snooze_client(request):
             },
             status=500
         )
+
+
 async def health(request):
     return web.Response(text='OK')
+
 
 async def dashboard_page(request):
     if not OUTPUT.exists():
@@ -308,18 +319,42 @@ async def dashboard_page(request):
             content_type='text/html',
             charset='utf-8'
         )
+
     return web.FileResponse(OUTPUT)
+
 
 async def start_web_app():
     app = web.Application()
+
     app.router.add_get('/', dashboard_page)
     app.router.add_get('/dashboard', dashboard_page)
     app.router.add_get('/health', health)
-    app.router.add_post("/snooze", snooze_client)
+    app.router.add_post('/snooze', snooze_client)
+
     runner = web.AppRunner(app)
     await runner.setup()
+
     site = web.TCPSite(runner, '0.0.0.0', PORT)
     await site.start()
+
+
+@dp.message(Command("chatid"))
+async def chatid(message: Message):
+    await message.answer(
+        f"Chat ID: <code>{message.chat.id}</code>\n"
+        f"Type: <code>{message.chat.type}</code>"
+    )
+
+
+@dp.message()
+async def debug_all(message: Message):
+    print(
+        f"CHAT={message.chat.id} "
+        f"TYPE={message.chat.type} "
+        f"TEXT={message.text}",
+        flush=True
+    )
+
 
 async def main():
     print("WEB APP STARTING", flush=True)
@@ -332,27 +367,7 @@ async def main():
     except Exception as e:
         print(f"BOT POLLING ERROR: {e}", flush=True)
         raise
-@dp.message()
-async def debug_all(message: Message):
-    print(
-        f"CHAT={message.chat.id} "
-        f"TYPE={message.chat.type} "
-        f"TEXT={message.text}",
-        flush=True
-    )
-@dp.message(Command("chatid"))
-async def chatid(message: Message):
-    await message.answer(
-        f"Chat ID: <code>{message.chat.id}</code>\n"
-        f"Type: <code>{message.chat.type}</code>"
-    )
-    @dp.message()
-async def debug_all(message: Message):
-    print(
-        f"CHAT={message.chat.id} "
-        f"TYPE={message.chat.type} "
-        f"TEXT={message.text}",
-        flush=True
-    )
+
+
 if __name__ == '__main__':
     asyncio.run(main())
