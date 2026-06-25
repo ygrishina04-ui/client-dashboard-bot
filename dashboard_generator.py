@@ -711,6 +711,76 @@ select {{
     gap:16px;
 }}
 
+.app-shell {{
+    display:grid;
+    grid-template-columns:235px 1fr;
+    min-height:100vh;
+}}
+
+.sidebar {{
+    background:linear-gradient(180deg,#172033 0%,#202a44 100%);
+    color:white;
+    padding:26px 20px;
+    position:sticky;
+    top:0;
+    height:100vh;
+    box-shadow:14px 0 38px rgba(23,32,51,.16);
+}}
+
+.side-logo {{
+    font-size:22px;
+    font-weight:900;
+    margin-bottom:34px;
+    color:white;
+    line-height:1.18;
+    letter-spacing:-.02em;
+}}
+
+.nav-section {{
+    margin-bottom:10px;
+}}
+
+.nav-item {{
+    padding:12px 14px;
+    border-radius:14px;
+    color:#dbeafe;
+    font-weight:800;
+    margin-bottom:6px;
+    cursor:pointer;
+    transition:.2s;
+}}
+
+.nav-item:hover {{
+    background:rgba(255,255,255,.09);
+    color:white;
+}}
+
+.nav-item.active {{
+    background:linear-gradient(135deg,#3498db,#6c5ce7);
+    color:white;
+    box-shadow:0 12px 26px rgba(52,152,219,.26);
+}}
+
+.nav-sub {{
+    padding-left:38px;
+    color:#cbd5e1;
+    font-size:14px;
+    line-height:1.7;
+    margin:4px 0 18px;
+}}
+
+.main-area {{
+    min-width:0;
+}}
+
+.page {{
+    display:none;
+}}
+
+.page.active-page {{
+    display:block;
+}}
+
 .kpi {{
     grid-template-columns:repeat(4,1fr);
     margin-bottom:16px;
@@ -882,6 +952,14 @@ th {{
     select {{
         width:100%;
         margin-top:8px;
+    }}
+    .app-shell {{
+    display:block;
+    }}
+
+.sidebar {{
+    position:relative;
+    height:auto;
     }}
 }}
 </style>
