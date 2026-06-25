@@ -220,3 +220,9 @@ async def debug_all(message: Message):
     
 if __name__ == '__main__':
     asyncio.run(main())
+@dp.message(Command("chatid"))
+async def chatid(message: Message):
+    await message.answer(
+        f"Chat ID: <code>{message.chat.id}</code>\n"
+        f"Type: <code>{message.chat.type}</code>"
+    )
