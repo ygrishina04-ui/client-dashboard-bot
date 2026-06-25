@@ -887,6 +887,42 @@ th {{
 </style>
 </head>
 <body>
+<div class="app-shell">
+
+<aside class="sidebar">
+    <div class="side-logo">Дашборд<br>Инвиктика</div>
+
+    <div class="nav-section">
+        <div class="nav-item" data-page="home">🏠 Главная</div>
+    </div>
+
+    <div class="nav-section">
+        <div class="nav-item active" data-page="clients">👥 Клиентский отдел</div>
+        <div class="nav-sub">
+            • Заказы<br>
+            • Запросы<br>
+            • Портфель
+        </div>
+    </div>
+
+    <div class="nav-section">
+        <div class="nav-item" data-page="logistics">🚢 Логистика</div>
+    </div>
+
+    <div class="nav-section">
+        <div class="nav-item" data-page="customs">📑 Таможня</div>
+    </div>
+
+    <div class="nav-section">
+        <div class="nav-item" data-page="sales">📈 Отдел продаж</div>
+    </div>
+
+    <div class="nav-section">
+        <div class="nav-item" data-page="settings">⚙️ Настройки</div>
+    </div>
+</aside>
+
+<main class="main-area">
 <div class='wrap'>
 
 <div class='hero'>
@@ -1143,7 +1179,8 @@ document.querySelectorAll('.snooze-btn').forEach(btn => {{
     }});
 }});
 </script>
-
+</main>
+</div>
 </body>
 </html>
 """
