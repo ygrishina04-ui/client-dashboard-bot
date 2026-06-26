@@ -176,7 +176,8 @@ def build_dashboard(
     requests_path: str,
     portfolio_path: str,
     output_path: str | None = None,
-    today: datetime | None = None
+    today: datetime | None = None,
+    snoozed_clients: dict | None = None
 ) -> Dict[str, Any]:
 
     today = today or datetime.now()
@@ -372,7 +373,7 @@ def build_dashboard(
 
     port_mgr = port_mgr.sort_values(['lost', 'risk'], ascending=False)
 
-    snoozed = load_snoozed_clients()
+    snoozed = snoozed_clients or {}
     today_norm = pd.Timestamp(today).normalize()
 
     priority = port[port['_status'].isin(['РИСК', 'LOST'])].copy()
