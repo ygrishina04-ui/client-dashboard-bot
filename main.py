@@ -1,6 +1,7 @@
 import os
 import asyncio
 import gspread
+import traceback
 from google.oauth2.service_account import Credentials
 from pathlib import Path
 from aiohttp import web
@@ -138,8 +139,9 @@ def load_snoozed_clients():
 
         return result
 
-    except Exception as e:
-        print(f"Не удалось загрузить SNOOZE из Google Sheets: {e}", flush=True)
+    except Exception:
+        print("Не удалось сохранить file_id в Google Sheets:", flush=True)
+        traceback.print_exc()
         return {}
 SNOOZE_FILE = OUTPUT_DIR / "snoozed_clients.json"
 
@@ -298,11 +300,12 @@ async def snooze_client(request):
 
         return web.json_response({"ok": True})
 
-    except Exception as e:
+    except Exception:
+        traceback.print_exc()
         return web.json_response(
             {
                 "ok": False,
-                "error": str(e)
+                "error": "Ошибка сохранения в Google Sheets. Подробности в Render Logs."
             },
             status=500
         )
