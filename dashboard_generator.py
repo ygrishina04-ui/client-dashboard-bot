@@ -378,12 +378,34 @@ def build_dashboard(
 
     priority = port[port['_status'].isin(['РИСК', 'LOST'])].copy()
 
+    def norm_client_name(x):
+        return (
+            str(x)
+            .strip()
+            .lower()
+            .replace('"', '')
+            .replace('«', '')
+            .replace('»', '')
+            .replace('ооо ', '')
+            .replace('ип ', '')
+            .replace('зао ', '')
+            .replace('ао ', '')
+        )
+
+    snoozed_norm = {
+        norm_client_name(k): v
+        for k, v in snoozed.items()
+    }
+
+
     def is_snoozed(client_name):
-        item = snoozed.get(str(client_name).strip())
+        item = snoozed_norm.get(norm_client_name(client_name))
+
         if not item:
             return False
 
         until = pd.to_datetime(item.get('until'), errors='coerce')
+
         if pd.isna(until):
             return False
 
