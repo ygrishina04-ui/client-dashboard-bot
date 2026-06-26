@@ -89,13 +89,13 @@ def save_uploaded_file_to_storage(kind, file_id, filename):
         ws.append_row(data)
 
 
-def save_snooze_to_storage(client, manager, until, comment=""):
+def save_snooze_to_storage(client, manager, until, reason=""):
     spreadsheet = get_storage_sheet()
 
     ws = get_or_create_worksheet(
         spreadsheet,
         "SNOOZE",
-        ["client", "manager", "until", "comment", "created_at"]
+        ["client", "manager", "until", "reason", "created_at"]
     )
 
     rows = ws.get_all_records()
@@ -108,7 +108,7 @@ def save_snooze_to_storage(client, manager, until, comment=""):
             row_index = i
             break
 
-    data = [client, manager, until, comment, now]
+    data = [client, manager, until, reason, now]
 
     if row_index:
         ws.update(f"A{row_index}:E{row_index}", [data])
@@ -134,7 +134,7 @@ def load_snoozed_clients():
                 result[client] = {
                     "manager": row.get("manager", ""),
                     "until": row.get("until", ""),
-                    "comment": row.get("comment", ""),
+                    "reason": row.get("reason", row.get("comment", "")),
                     "created_at": row.get("created_at", "")
                 }
 
@@ -255,11 +255,14 @@ async def doc(message: Message):
         return
 
     try:
+        snoozed_clients = load_snoozed_clients()
+
         build_dashboard(
             order_path=user_files[uid]['orders'],
             requests_path=user_files[uid]['requests'],
             portfolio_path=user_files[uid]['portfolio'],
-            output_path=str(OUTPUT)
+            output_path=str(OUTPUT),
+            snoozed_clients=snoozed_clients
         )
 
         await message.answer_document(
@@ -279,7 +282,7 @@ async def snooze_client(request):
         client = str(data.get("client", "")).strip()
         until = str(data.get("until", "")).strip()
         manager = str(data.get("manager", "")).strip()
-        comment = str(data.get("comment", "")).strip()
+        reason = str(data.get("reason", "")).strip()
 
         if not client or not until:
             return web.json_response(
@@ -294,7 +297,7 @@ async def snooze_client(request):
             client=client,
             manager=manager,
             until=until,
-            comment=comment
+            reason=reason
         )
 
         print(f"SNOOZED: {client} до {until}", flush=True)
