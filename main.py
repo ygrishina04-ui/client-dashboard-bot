@@ -11,7 +11,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from dashboard_generator import build_dashboard
-import json
+from datetime import datetime
 
 TOKEN = os.getenv('BOT_TOKEN')
 if not TOKEN:
