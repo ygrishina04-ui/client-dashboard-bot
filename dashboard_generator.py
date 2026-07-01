@@ -374,12 +374,54 @@ def build_dashboard(
     port_mgr = port_mgr.sort_values(['lost', 'risk'], ascending=False)
 
     snoozed = snoozed_clients or {}
-
     print(f"SNOOZE IN GENERATOR: {len(snoozed)}", flush=True)
-    
+
     today_norm = pd.Timestamp(today).normalize()
 
     priority = port[port['_status'].isin(['РИСК', 'LOST'])].copy()
+
+
+def norm_client_name(x):
+    return (
+        str(x)
+        .strip()
+        .lower()
+        .replace('"', '')
+        .replace('«', '')
+        .replace('»', '')
+        .replace('ооо ', '')
+        .replace('ип ', '')
+        .replace('зао ', '')
+        .replace('ао ', '')
+        .replace(' ', '')
+    )
+
+
+snoozed_norm = {
+    norm_client_name(k): v
+    for k, v in snoozed.items()
+}
+
+
+def is_snoozed(client_name):
+    item = snoozed_norm.get(norm_client_name(client_name))
+
+    if not item:
+        return False
+
+    until = pd.to_datetime(item.get('until'), errors='coerce')
+
+    if pd.isna(until):
+        return False
+
+    return pd.Timestamp(until).normalize() > today_norm
+
+
+priority['_snoozed'] = priority['Наименование'].apply(is_snoozed)
+
+snoozed_active_count = int(priority['_snoozed'].sum())
+
+priority = priority[~priority['_snoozed']].copy()
 
     def norm_client_name(x):
         return (
@@ -607,23 +649,31 @@ def render_html(d: Dict[str, Any]) -> str:
         manager_name = format_cell(r['Оперативный менеджер'])
 
         att_rows += (
-            f"<tr class='{cls}' data-manager='{esc_attr(manager_name)}'>"
-            f"<td>{client_name}</td>"
-            f"<td>{manager_name}</td>"
-            f"<td>{format_cell(r['Признак'])}</td>"
-            f"<td>{format_cell(r['Группа'])}</td>"
-            f"<td>{format_cell(r['Количество заказов'])}</td>"
-            f"<td>{format_cell(r['_status'])}</td>"
-            f"<td>{format_cell(r['_days'])}</td>"
             f"<td class='snooze-cell'>"
+            f"<select class='snooze-days'>"
+            f"<option value=''>Срок</option>"
+            f"<option value='7'>7 дней</option>"
+            f"<option value='14'>14 дней</option>"
+            f"<option value='30'>30 дней</option>"
+            f"<option value='60'>60 дней</option>"
+            f"<option value='90'>90 дней</option>"
+            f"</select> "
             f"<input type='date' class='snooze-date'> "
+            f"<select class='snooze-reason'>"
+            f"<option value=''>Причина</option>"
+            f"<option value='Пауза проекта'>Пауза проекта</option>"
+            f"<option value='Сезонность'>Сезонность</option>"
+            f"<option value='Ожидаем решение клиента'>Ожидаем решение клиента</option>"
+            f"<option value='Нет бюджета'>Нет бюджета</option>"
+            f"<option value='Ожидаем документы'>Ожидаем документы</option>"
+            f"<option value='Другое'>Другое</option>"
+            f"</select> "
             f"<button class='snooze-btn' "
             f"data-client='{esc_attr(client_name)}' "
             f"data-manager='{esc_attr(manager_name)}'>"
             f"Отложить"
             f"</button>"
             f"</td>"
-            f"</tr>"
         )
 
     status_cards = ''.join(
@@ -954,8 +1004,14 @@ th {{
     border:1px solid #dde5f3;
     border-radius:10px;
     padding:7px;
+    background:white;
+    font-weight:600;
+    max-width:145px;
 }}
 
+.snooze-cell {{
+    white-space:nowrap;
+}}
 .snooze-btn {{
     border:0;
     border-radius:10px;
@@ -1226,13 +1282,60 @@ const filter = document.getElementById('managerFilter');
 function applyManagerFilter() {{
     const value = filter.value;
 
-    document.querySelectorAll('tr[data-manager]').forEach(row => {{
-        const manager = row.getAttribute('data-manager') || '';
-        row.classList.toggle(
-            'hidden-by-filter',
-            value !== '__all__' && manager !== value
-        );
+    document.querySelectorAll('.snooze-btn').forEach(btn => {{
+    btn.addEventListener('click', async () => {{
+        const row = btn.closest('tr');
+
+        const dateInput = row.querySelector('.snooze-date');
+        const daysSelect = row.querySelector('.snooze-days');
+        const reasonSelect = row.querySelector('.snooze-reason');
+
+        let until = dateInput.value;
+        const days = daysSelect.value;
+        const reason = reasonSelect.value;
+
+        if (!until && days) {{
+            const d = new Date();
+            d.setDate(d.getDate() + parseInt(days));
+            until = d.toISOString().slice(0, 10);
+        }}
+
+        if (!until) {{
+            alert('Выберите срок или дату');
+            return;
+        }}
+
+        if (!reason) {{
+            alert('Выберите причину');
+            return;
+        }}
+
+        const client = btn.dataset.client;
+        const manager = btn.dataset.manager;
+
+        const response = await fetch('/snooze', {{
+            method: 'POST',
+            headers: {{
+                'Content-Type': 'application/json'
+            }},
+            body: JSON.stringify({{
+                client: client,
+                manager: manager,
+                until: until,
+                reason: reason
+            }})
+        }});
+
+        const result = await response.json();
+
+        if (result.ok) {{
+            row.style.display = 'none';
+            alert('Клиент отложен до ' + until);
+        }} else {{
+            alert('Ошибка: ' + result.error);
+        }}
     }});
+}});
 }}
 
 filter.addEventListener('change', applyManagerFilter);
