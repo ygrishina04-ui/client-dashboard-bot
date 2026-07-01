@@ -648,11 +648,11 @@ def render_html(d: Dict[str, Any]) -> str:
             f"<input type='date' class='snooze-date'> "
             f"<select class='snooze-reason'>"
             f"<option value=''>Причина</option>"
-            f"<option value='Ожидаем готовность груза'>Ожидаем готовность груза</option>"
+            f"<option value='Пауза проекта'>Пауза проекта</option>"
             f"<option value='Сезонность'>Сезонность</option>"
-            f"<option value='Пока не планируется поставок'>Пока не планируется поставок</option>"
-            f"<option value='Клиент в отпуске'>Клиент в отпуске</option>"
-            f"<option value='Не интересен нам'>Не интересен нам</option>"
+            f"<option value='Ожидаем решение клиента'>Ожидаем решение клиента</option>"
+            f"<option value='Нет бюджета'>Нет бюджета</option>"
+            f"<option value='Ожидаем документы'>Ожидаем документы</option>"
             f"<option value='Другое'>Другое</option>"
             f"</select> "
             f"<button class='snooze-btn' "
@@ -748,32 +748,6 @@ body {{
     line-height:1.7;
     margin:4px 0 18px;
 }}
-
-.dashboard-section {
-    display: none;
-}
-
-.dashboard-section.active-section {
-    display: block;
-}
-
-.nav-link {
-    display: block;
-    padding: 8px 14px;
-    margin: 4px 0;
-    border-radius: 10px;
-    color: #d7e3ff;
-    text-decoration: none;
-    transition: .2s;
-    font-weight: 600;
-}
-
-.nav-link:hover,
-.nav-link.active-subtab {
-    background: rgba(255,255,255,.14);
-    color: #fff;
-    padding-left: 18px;
-}
 
 .main-area {{ min-width:0; }}
 .page {{ display:none; }}
@@ -1019,14 +993,13 @@ th {{
     </div>
 
     <div class='nav-section'>
-    <div class='nav-item active' data-page='clients'>👥 Клиентский отдел</div>
-
-    <div class="nav-sub">
-        <a href="#" class="nav-link subtab active-subtab" data-section="orders">📦 Заказы</a>
-        <a href="#" class="nav-link subtab" data-section="requests">📨 Запросы</a>
-        <a href="#" class="nav-link subtab" data-section="portfolio">👥 Клиентский портфель</a>
+        <div class='nav-item active' data-page='clients'>👥 Клиентский отдел</div>
+        <div class='nav-sub'>
+            • Заказы<br>
+            • Запросы<br>
+            • Портфель
+        </div>
     </div>
-</div>
 
     <div class='nav-section'>
         <div class='nav-item' data-page='logistics'>🚢 Логистика</div>
@@ -1079,7 +1052,7 @@ th {{
     </div>
 </div>
 
-<section class='section dashboard-section active-section' id='orders-section'>
+<section class='section'>
     <h2>1. Заказы</h2>
     <div class='grid kpi three-kpi'>
         <div class='card'>
@@ -1114,7 +1087,7 @@ th {{
     </div>
 </section>
 
-<section class='section dashboard-section' id='requests-section'>
+<section class='section'>
     <h2>2. Запросы</h2>
     <div class='grid two'>
         <div class='card'>
@@ -1159,7 +1132,7 @@ th {{
     </div>
 </section>
 
-<section class='section dashboard-section' id='portfolio-section'>
+<section class='section'>
     <h2>3. Клиентский портфель</h2>
 
     <div class='grid kpi'>
@@ -1372,29 +1345,6 @@ document.querySelectorAll('.snooze-btn').forEach(btn => {{
         }}
     }});
 }});
-document.querySelectorAll('.subtab').forEach(link => {{
-    link.addEventListener('click', (e) => {{
-        e.preventDefault();
-
-        const section = link.dataset.section;
-
-        document.querySelectorAll('.subtab').forEach(item => {{
-            item.classList.remove('active-subtab');
-        }});
-
-        link.classList.add('active-subtab');
-
-        document.querySelectorAll('.dashboard-section').forEach(block => {{
-            block.classList.remove('active-section');
-        }});
-
-        const target = document.getElementById(section + '-section');
-
-        if (target) {{
-            target.classList.add('active-section');
-        }}
-    }});
-}});
 </script>
 </body>
 </html>
@@ -1420,3 +1370,4 @@ if __name__ == "__main__":
     )
 
     print(args.output)
+
