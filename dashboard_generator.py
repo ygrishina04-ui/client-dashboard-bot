@@ -1372,28 +1372,29 @@ document.querySelectorAll('.snooze-btn').forEach(btn => {{
         }}
     }});
 }});
-document.querySelectorAll('.subtab').forEach(link => {
-    link.addEventListener('click', (e) => {
+document.querySelectorAll('.subtab').forEach(link => {{
+    link.addEventListener('click', (e) => {{
         e.preventDefault();
 
         const section = link.dataset.section;
 
-        document.querySelectorAll('.subtab').forEach(item => {
+        document.querySelectorAll('.subtab').forEach(item => {{
             item.classList.remove('active-subtab');
-        });
+        }});
 
         link.classList.add('active-subtab');
 
-        document.querySelectorAll('.dashboard-section').forEach(block => {
+        document.querySelectorAll('.dashboard-section').forEach(block => {{
             block.classList.remove('active-section');
-        });
+        }});
 
         const target = document.getElementById(section + '-section');
-        if (target) {
+
+        if (target) {{
             target.classList.add('active-section');
-        }
-    });
-});
+        }}
+    }});
+}});
 </script>
 </body>
 </html>
