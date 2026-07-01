@@ -122,7 +122,7 @@ def load_snoozed_clients():
         ws = get_or_create_worksheet(
             spreadsheet,
             "SNOOZE",
-            ["client", "manager", "until", "comment", "created_at"]
+            ["client", "manager", "until", "reason", "created_at"]
         )
 
         result = {}
