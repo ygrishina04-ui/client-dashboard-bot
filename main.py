@@ -256,7 +256,9 @@ async def doc(message: Message):
 
     try:
         snoozed_clients = load_snoozed_clients()
-
+        
+        print(f"SNOOZE LOADED: {len(snoozed_clients)}", flush=True)
+        
         build_dashboard(
             order_path=user_files[uid]['orders'],
             requests_path=user_files[uid]['requests'],
