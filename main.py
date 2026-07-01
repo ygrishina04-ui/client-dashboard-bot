@@ -31,6 +31,10 @@ UPLOADS.mkdir(exist_ok=True)
 OUTPUT_DIR = BASE / 'output'
 OUTPUT_DIR.mkdir(exist_ok=True)
 OUTPUT = OUTPUT_DIR / 'dashboard.html'
+bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher()
+
+user_files = {}
 def get_storage_sheet():
     if not GOOGLE_CREDENTIALS_JSON or not GOOGLE_SHEET_ID:
         raise RuntimeError("Не заданы GOOGLE_CREDENTIALS_JSON или GOOGLE_SHEET_ID")
