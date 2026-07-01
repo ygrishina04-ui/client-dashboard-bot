@@ -374,6 +374,9 @@ def build_dashboard(
     port_mgr = port_mgr.sort_values(['lost', 'risk'], ascending=False)
 
     snoozed = snoozed_clients or {}
+
+    print(f"SNOOZE IN GENERATOR: {len(snoozed)}", flush=True)
+    
     today_norm = pd.Timestamp(today).normalize()
 
     priority = port[port['_status'].isin(['РИСК', 'LOST'])].copy()
