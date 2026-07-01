@@ -119,42 +119,38 @@ def save_snooze_to_storage(client, manager, until, reason=""):
 def load_snoozed_clients():
     try:
         spreadsheet = get_storage_sheet()
-        ws = get_or_create_worksheet(
-            spreadsheet,
-            "SNOOZE",
-            ["client", "manager", "until", "reason", "created_at"]
-        )
+        ws = spreadsheet.worksheet("SNOOZE")
+
+        raw = ws.get_all_values()
+        print("SNOOZE RAW VALUES:", raw, flush=True)
 
         result = {}
 
-        for row in ws.get_all_records():
+        if len(raw) < 2:
+            return result
+
+        headers = [h.strip().lower() for h in raw[0]]
+
+        for row_values in raw[1:]:
+            row = dict(zip(headers, row_values))
+
             client = str(row.get("client", "")).strip()
+            if not client:
+                continue
 
-            if client:
-                result[client] = {
-                    "manager": row.get("manager", ""),
-                    "until": row.get("until", ""),
-                    "reason": row.get("reason", row.get("comment", "")),
-                    "created_at": row.get("created_at", "")
-                }
+            result[client] = {
+                "manager": row.get("manager", ""),
+                "until": row.get("until", ""),
+                "reason": row.get("reason", row.get("comment", "")),
+                "created_at": row.get("created_at", "")
+            }
 
+        print(f"SNOOZE PARSED: {len(result)}", flush=True)
         return result
 
     except Exception:
-        print("Не удалось сохранить file_id в Google Sheets:", flush=True)
         traceback.print_exc()
         return {}
-SNOOZE_FILE = OUTPUT_DIR / "snoozed_clients.json"
-
-bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
-user_files = {}
-
-REQUIRED = {
-    'orders': 'заказы',
-    'requests': 'запросы',
-    'portfolio': 'портфель'
-}
 
 def detect_kind(filename: str, caption: str = ''):
     text = (filename + ' ' + (caption or '')).lower()
