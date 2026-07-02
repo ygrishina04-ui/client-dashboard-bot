@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from dashboard_parts.logistics import build_logistics_data, render_logistics
 import json
 import math
 from datetime import datetime
