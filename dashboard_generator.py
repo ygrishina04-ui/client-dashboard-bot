@@ -1094,7 +1094,7 @@ th {{
     </div>
 </div>
 
-<section class='section'>
+<section class='section dashboard-section active-section' id='orders-section'>
     <h2>1. Заказы</h2>
     <div class='grid kpi three-kpi'>
         <div class='card'>
@@ -1129,7 +1129,7 @@ th {{
     </div>
 </section>
 
-<section class='section'>
+<section class='section dashboard-section' id='requests-section'>
     <h2>2. Запросы</h2>
     <div class='grid two'>
         <div class='card'>
@@ -1174,7 +1174,7 @@ th {{
     </div>
 </section>
 
-<section class='section'>
+<section class='section dashboard-section' id='portfolio-section'>
     <h2>3. Клиентский портфель</h2>
 
     <div class='grid kpi'>
