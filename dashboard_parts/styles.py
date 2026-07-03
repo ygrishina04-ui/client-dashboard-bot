@@ -20,21 +20,19 @@ body {
 }
 
 .app-shell {
-    min-height: 100vh;
+    display:grid;
+    grid-template-columns:235px 1fr;
+    min-height:100vh;
 }
 
 .sidebar {
-    background: linear-gradient(180deg,#172033 0%,#202a44 100%);
-    color: white;
-    padding: 26px 20px;
-    position: fixed;
-    left: 0;
-    top: 0;
-    width: 235px;
-    height: 100vh;
-    overflow-y: auto;
-    box-shadow: 14px 0 38px rgba(23,32,51,.16);
-    z-index: 10;
+    background:linear-gradient(180deg,#172033 0%,#202a44 100%);
+    color:white;
+    padding:26px 20px;
+    position:sticky;
+    top:0;
+    height:100vh;
+    box-shadow:14px 0 38px rgba(23,32,51,.16);
 }
 
 .side-logo {
@@ -77,10 +75,9 @@ body {
     margin:4px 0 18px;
 }
 
-.main-area {
-    min-width: 0;
-    margin-left: 235px;
-}
+.main-area { min-width:0; }
+.page { display:none; }
+.page.active-page { display:block; }
 
 .wrap {
     max-width:1480px;
@@ -310,18 +307,33 @@ th {
     select { width:100%; margin-top:8px; }
 }
 
-
-.dashboard-section {
-    display:none;
+/* ===== stable sidebar + client subtabs ===== */
+.app-shell {
+    display: grid;
+    grid-template-columns: 235px 1fr;
+    min-height: 100vh;
 }
 
-.dashboard-section.active-section {
-    display:block;
+.sidebar {
+    background: linear-gradient(180deg,#172033 0%,#202a44 100%);
+    color: white;
+    padding: 26px 20px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    box-shadow: 14px 0 38px rgba(23,32,51,.16);
+    z-index: 10;
+}
+
+.main-area {
+    min-width: 0;
 }
 
 .nav-sub {
     padding-left: 18px;
     margin-top: 8px;
+    margin-bottom: 18px;
 }
 
 .nav-sub br {
@@ -338,6 +350,8 @@ th {
     text-decoration: none !important;
     font-size: 14px;
     font-weight: 700;
+    line-height: 1.25;
+    transition: .2s;
 }
 
 .nav-link:hover,
@@ -345,6 +359,21 @@ th {
 .nav-sub a:hover {
     background: rgba(255,255,255,.12);
     color: #fff !important;
+    padding-left: 16px;
+}
+
+.dashboard-section {
+    display: none;
+}
+
+.dashboard-section.active-section {
+    display: block;
+}
+
+@media(max-width:900px) {
+    .app-shell { display: block; }
+    .sidebar { position: relative; height: auto; width: auto; }
+    .main-area { margin-left: 0; }
 }
 
 </style>
