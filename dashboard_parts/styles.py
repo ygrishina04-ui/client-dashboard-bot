@@ -20,19 +20,21 @@ body {
 }
 
 .app-shell {
-    display:grid;
-    grid-template-columns:235px 1fr;
-    min-height:100vh;
+    min-height: 100vh;
 }
 
 .sidebar {
-    background:linear-gradient(180deg,#172033 0%,#202a44 100%);
-    color:white;
-    padding:26px 20px;
-    position:sticky;
-    top:0;
-    height:100vh;
-    box-shadow:14px 0 38px rgba(23,32,51,.16);
+    background: linear-gradient(180deg,#172033 0%,#202a44 100%);
+    color: white;
+    padding: 26px 20px;
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 235px;
+    height: 100vh;
+    overflow-y: auto;
+    box-shadow: 14px 0 38px rgba(23,32,51,.16);
+    z-index: 10;
 }
 
 .side-logo {
@@ -75,9 +77,10 @@ body {
     margin:4px 0 18px;
 }
 
-.main-area { min-width:0; }
-.page { display:none; }
-.page.active-page { display:block; }
+.main-area {
+    min-width: 0;
+    margin-left: 235px;
+}
 
 .wrap {
     max-width:1480px;
