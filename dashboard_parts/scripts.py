@@ -107,5 +107,27 @@ document.querySelectorAll('.snooze-btn').forEach(btn => {
         }
     });
 });
+document.querySelectorAll('.subtab').forEach(link => {
+    link.addEventListener('click', function(e) {
+        e.preventDefault();
+
+        const section = this.dataset.section;
+
+        document.querySelectorAll('.subtab').forEach(item => {
+            item.classList.remove('active-subtab');
+        });
+
+        this.classList.add('active-subtab');
+
+        document.querySelectorAll('.dashboard-section').forEach(block => {
+            block.classList.remove('active-section');
+        });
+
+        const target = document.getElementById(section + '-section');
+        if (target) {
+            target.classList.add('active-section');
+        }
+    });
+});
 </script>
 """
