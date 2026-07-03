@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dashboard_parts.logistics import build_logistics_data, render_logistics
+
 import json
 import math
 from datetime import datetime
@@ -7,9 +7,6 @@ from pathlib import Path
 from typing import Any, Dict
 
 import pandas as pd
-
-from dashboard_parts.styles import get_styles
-from dashboard_parts.scripts import get_scripts
 
 
 EXCLUDED_ORDER_STATUSES = {
@@ -35,6 +32,44 @@ CATEGORY_RULES = {
     "Нерегулярный": {"risk": 50, "lost": 60},
     "Нерегулярные": {"risk": 50, "lost": 60},
 }
+
+
+LOGISTICS_MANAGERS_WORK = [
+    "Валерия Конакова",
+    "Вероника Павлова",
+    "Дмитрий Шеховцов",
+    "Осипов Евгений",
+    "Терешкина Анастасия",
+    "Чекалов Феликс",
+]
+
+LOGISTICS_MANAGERS_TABLE = [
+    "Вероника Павлова",
+    "Дмитрий Шеховцов",
+    "Осипов Евгений",
+    "Терешкина Анастасия",
+    "Чекалов Феликс",
+]
+
+LOGISTICS_WORK_STATUSES = [
+    "Авто прямое",
+    "Автовывоз",
+    "Букинг",
+    "В Работе",
+    "В работе",
+    "До границы",
+    "ЖД",
+    "ЖД прямое",
+    "Море",
+    "Новый",
+    "Ожидание выхода по ЖД",
+    "ПТД",
+    "Порт",
+    "После границы",
+    "Размещение",
+    "Авиа",
+]
+
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
@@ -216,6 +251,7 @@ def build_dashboard(
     output_path: str | None = None,
     today: datetime | None = None,
     snoozed_clients: dict | None = None,
+    logistics_path: str | None = None,
 ) -> Dict[str, Any]:
     today = today or datetime.now()
 
@@ -454,10 +490,13 @@ def build_dashboard(
         + [str(x) for x in port.get(port_manager_col, pd.Series(dtype=str)).dropna().unique()]
     ))
 
+    logistics_data = build_logistics_data(logistics_path, today)
+
     data = {
         "generated_at": today.strftime("%d.%m.%Y %H:%M"),
         "profit_col": profit_col or "не найдено",
         "managers": managers,
+        "logistics": logistics_data,
         "orders": {
             "active_count": int(len(active_orders)),
             "active_clients": int(active_orders[partner_col].nunique()) if partner_col in active_orders else 0,
@@ -677,7 +716,313 @@ def render_html(d: Dict[str, Any]) -> str:
 <meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Дашборд Инвиктика</title>
-{get_styles()}
+<style>
+:root {{
+    --blue:#3498db;
+    --pink:#e84393;
+    --violet:#6c5ce7;
+    --dark:#172033;
+    --muted:#667085;
+    --red:#e74c3c;
+}}
+
+* {{ box-sizing:border-box; }}
+
+body {{
+    margin:0;
+    font-family:Inter,Arial,sans-serif;
+    background:linear-gradient(135deg,#cfe8ff 0%,#d9d6ff 45%,#ffd4ea 100%);
+    color:#1f2937;
+}}
+
+.app-shell {{
+    display:grid;
+    grid-template-columns:235px 1fr;
+    min-height:100vh;
+}}
+
+.sidebar {{
+    background:linear-gradient(180deg,#172033 0%,#202a44 100%);
+    color:white;
+    padding:26px 20px;
+    position:sticky;
+    top:0;
+    height:100vh;
+    box-shadow:14px 0 38px rgba(23,32,51,.16);
+}}
+
+.side-logo {{
+    font-size:22px;
+    font-weight:900;
+    margin-bottom:34px;
+    color:white;
+    line-height:1.18;
+    letter-spacing:-.02em;
+}}
+
+.nav-section {{ margin-bottom:10px; }}
+
+.nav-item {{
+    padding:12px 14px;
+    border-radius:14px;
+    color:#dbeafe;
+    font-weight:800;
+    margin-bottom:6px;
+    cursor:pointer;
+    transition:.2s;
+}}
+
+.nav-item:hover {{
+    background:rgba(255,255,255,.09);
+    color:white;
+}}
+
+.nav-item.active {{
+    background:linear-gradient(135deg,#3498db,#6c5ce7);
+    color:white;
+    box-shadow:0 12px 26px rgba(52,152,219,.26);
+}}
+
+.nav-sub {{
+    padding-left:38px;
+    color:#cbd5e1;
+    font-size:14px;
+    line-height:1.7;
+    margin:4px 0 18px;
+}}
+
+.main-area {{ min-width:0; }}
+.page {{ display:none; }}
+.page.active-page {{ display:block; }}
+
+.wrap {{
+    max-width:1480px;
+    margin:0 auto;
+    padding:28px 32px;
+}}
+
+.hero {{
+    display:flex;
+    justify-content:space-between;
+    gap:16px;
+    align-items:center;
+    margin-bottom:20px;
+}}
+
+h1 {{
+    margin:0;
+    font-size:34px;
+    letter-spacing:-.04em;
+}}
+
+.sub {{
+    color:var(--muted);
+    margin-top:8px;
+}}
+
+.badge {{
+    padding:10px 14px;
+    border-radius:999px;
+    background:#fff;
+    border:1px solid #e9ecf5;
+    box-shadow:0 10px 30px rgba(43,55,90,.08);
+}}
+
+.toolbar {{
+    display:flex;
+    gap:12px;
+    align-items:center;
+    justify-content:space-between;
+    margin:16px 0 20px;
+    padding:14px 16px;
+    border-radius:22px;
+    background:rgba(255,255,255,.82);
+    border:1px solid #edf0fa;
+    box-shadow:0 14px 40px rgba(42,56,100,.10);
+}}
+
+.toolbar label {{
+    font-size:13px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.06em;
+}}
+
+select {{
+    border:1px solid #dde5f3;
+    border-radius:14px;
+    padding:11px 14px;
+    background:white;
+    color:var(--dark);
+    font-weight:700;
+}}
+
+.filter-note {{
+    font-size:13px;
+    color:var(--muted);
+}}
+
+.grid {{
+    display:grid;
+    gap:16px;
+}}
+
+.kpi {{
+    grid-template-columns:repeat(4,1fr);
+    margin-bottom:16px;
+}}
+
+.three-kpi {{ grid-template-columns:repeat(3,1fr); }}
+
+.card {{
+    background:rgba(255,255,255,.92);
+    backdrop-filter:blur(8px);
+    border-radius:20px;
+    padding:20px;
+    box-shadow:0 12px 30px rgba(91,33,182,.12);
+    border:1px solid rgba(255,255,255,.5);
+}}
+
+.label {{
+    font-size:13px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.06em;
+}}
+
+.num {{
+    font-size:34px;
+    font-weight:850;
+    margin-top:8px;
+}}
+
+.pink {{ color:var(--pink); }}
+.blue {{ color:var(--blue); }}
+.violet {{ color:var(--violet); }}
+.red {{ color:var(--red); }}
+
+.section {{ margin-top:24px; }}
+h2 {{ font-size:24px; margin:0 0 14px; }}
+.two {{ grid-template-columns:1.1fr .9fr; }}
+
+table {{
+    width:100%;
+    border-collapse:collapse;
+    font-size:14px;
+}}
+
+th,td {{
+    text-align:left;
+    padding:12px;
+    border-bottom:1px solid #edf0f7;
+}}
+
+th {{
+    color:var(--muted);
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+}}
+
+.stage {{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:16px;
+    margin-bottom:10px;
+    border-radius:18px;
+    background:linear-gradient(135deg,#eef2ff,#fdf2f8);
+    border:1px solid #dbeafe;
+}}
+
+.stage b {{ font-size:26px; }}
+.hot {{ font-weight:800; color:var(--red); }}
+
+.critical td {{
+    background:#fff0f3!important;
+    color:#9f1239;
+    font-weight:700;
+}}
+
+.lost td {{ background:#fff7f8; }}
+.risk td {{ background:#fffaf0; }}
+
+.note {{
+    font-size:12px;
+    color:var(--muted);
+    margin-top:8px;
+}}
+
+.hidden-by-filter {{ display:none!important; }}
+
+.toggle-details {{
+    border:0;
+    background:#eef2ff;
+    border-radius:8px;
+    padding:6px 9px;
+    cursor:pointer;
+    font-weight:800;
+}}
+
+.detail-row {{ display:none; }}
+
+.detail-row td {{
+    background:#f8fafc;
+    color:#475467;
+    font-size:13px;
+}}
+
+.attention-group.open .detail-row {{ display:table-row; }}
+.attention-group.open .toggle-details {{ background:#dbeafe; }}
+
+.snooze-cell {{ white-space:nowrap; }}
+
+.snooze-days,
+.snooze-reason,
+.snooze-date {{
+    border:1px solid #d6dcf5;
+    border-radius:10px;
+    padding:8px 10px;
+    background:white;
+    font-weight:600;
+    font-size:13px;
+    margin-right:6px;
+    max-width:145px;
+}}
+
+.snooze-days:focus,
+.snooze-reason:focus,
+.snooze-date:focus {{
+    outline:none;
+    border-color:#6c5ce7;
+    box-shadow:0 0 0 3px rgba(108,92,231,.15);
+}}
+
+.snooze-btn {{
+    border:0;
+    border-radius:10px;
+    padding:8px 10px;
+    background:linear-gradient(135deg,#3498db,#6c5ce7);
+    color:white;
+    cursor:pointer;
+    font-weight:700;
+}}
+
+.placeholder {{
+    padding:36px;
+    border-radius:24px;
+    background:rgba(255,255,255,.9);
+    box-shadow:0 12px 30px rgba(91,33,182,.12);
+}}
+
+@media(max-width:900px) {{
+    .app-shell {{ display:block; }}
+    .sidebar {{ position:relative; height:auto; }}
+    .kpi,.three-kpi,.two {{ grid-template-columns:1fr; }}
+    .hero,.toolbar {{ display:block; }}
+    select {{ width:100%; margin-top:8px; }}
+}}
+</style>
 </head>
 <body>
 <div class='app-shell'>
@@ -692,9 +1037,9 @@ def render_html(d: Dict[str, Any]) -> str:
     <div class='nav-section'>
         <div class='nav-item active' data-page='clients'>👥 Клиентский отдел</div>
         <div class='nav-sub'>
-            <a href='#' class='nav-link subtab active-subtab' data-section='orders'>📦 Заказы</a>
-            <a href='#' class='nav-link subtab' data-section='requests'>📨 Запросы</a>
-            <a href='#' class='nav-link subtab' data-section='portfolio'>👥 Портфель</a>
+            • Заказы<br>
+            • Запросы<br>
+            • Портфель
         </div>
     </div>
 
@@ -749,7 +1094,7 @@ def render_html(d: Dict[str, Any]) -> str:
     </div>
 </div>
 
-<section class='section dashboard-section active-section' id='orders-section'>
+<section class='section'>
     <h2>1. Заказы</h2>
     <div class='grid kpi three-kpi'>
         <div class='card'>
@@ -784,7 +1129,7 @@ def render_html(d: Dict[str, Any]) -> str:
     </div>
 </section>
 
-<section class='section dashboard-section' id='requests-section'>
+<section class='section'>
     <h2>2. Запросы</h2>
     <div class='grid two'>
         <div class='card'>
@@ -829,7 +1174,7 @@ def render_html(d: Dict[str, Any]) -> str:
     </div>
 </section>
 
-<section class='section dashboard-section' id='portfolio-section'>
+<section class='section'>
     <h2>3. Клиентский портфель</h2>
 
     <div class='grid kpi'>
@@ -908,12 +1253,7 @@ def render_html(d: Dict[str, Any]) -> str:
 
 </div>
 
-<div class='page' id='page-logistics'>
-    <div class='placeholder'>
-        <h2>Логистика</h2>
-        <p>Раздел в разработке: этапы перевозок, проблемные заказы, море, ЖД, авто, авиа.</p>
-    </div>
-</div>
+{render_logistics(d.get("logistics"))}
 
 <div class='page' id='page-customs'>
     <div class='placeholder'>
@@ -940,7 +1280,109 @@ def render_html(d: Dict[str, Any]) -> str:
 </main>
 </div>
 
-{get_scripts()}
+<script>
+const filter = document.getElementById('managerFilter');
+
+function applyManagerFilter() {{
+    if (!filter) return;
+    const value = filter.value;
+
+    document.querySelectorAll('tr[data-manager]').forEach(row => {{
+        const manager = row.getAttribute('data-manager') || '';
+        row.classList.toggle(
+            'hidden-by-filter',
+            value !== '__all__' && manager !== value
+        );
+    }});
+}}
+
+if (filter) {{
+    filter.addEventListener('change', applyManagerFilter);
+}}
+
+document.querySelectorAll('.nav-item[data-page]').forEach(item => {{
+    item.addEventListener('click', () => {{
+        const page = item.dataset.page;
+
+        document.querySelectorAll('.nav-item[data-page]').forEach(i => {{
+            i.classList.remove('active');
+        }});
+
+        item.classList.add('active');
+
+        document.querySelectorAll('.page').forEach(p => {{
+            p.classList.remove('active-page');
+        }});
+
+        const target = document.getElementById('page-' + page);
+        if (target) {{
+            target.classList.add('active-page');
+        }}
+    }});
+}});
+
+document.querySelectorAll('.toggle-details').forEach(btn => {{
+    btn.addEventListener('click', () => {{
+        const group = btn.closest('.attention-group');
+        group.classList.toggle('open');
+        btn.textContent = group.classList.contains('open') ? '▼' : '▶';
+    }});
+}});
+
+document.querySelectorAll('.snooze-btn').forEach(btn => {{
+    btn.addEventListener('click', async () => {{
+        const row = btn.closest('tr');
+        const dateInput = row.querySelector('.snooze-date');
+        const daysSelect = row.querySelector('.snooze-days');
+        const reasonSelect = row.querySelector('.snooze-reason');
+
+        let until = dateInput.value;
+        const days = daysSelect.value;
+        const reason = reasonSelect.value;
+
+        if (!until && days) {{
+            const d = new Date();
+            d.setDate(d.getDate() + parseInt(days));
+            until = d.toISOString().slice(0, 10);
+        }}
+
+        if (!until) {{
+            alert('Выберите срок или дату');
+            return;
+        }}
+
+        if (!reason) {{
+            alert('Выберите причину');
+            return;
+        }}
+
+        const client = btn.dataset.client;
+        const manager = btn.dataset.manager;
+
+        const response = await fetch('/snooze', {{
+            method: 'POST',
+            headers: {{
+                'Content-Type': 'application/json'
+            }},
+            body: JSON.stringify({{
+                client: client,
+                manager: manager,
+                until: until,
+                reason: reason
+            }})
+        }});
+
+        const result = await response.json();
+
+        if (result.ok) {{
+            row.style.display = 'none';
+            alert('Клиент отложен до ' + until);
+        }} else {{
+            alert('Ошибка: ' + result.error);
+        }}
+    }});
+}});
+</script>
 </body>
 </html>
 """
@@ -953,6 +1395,7 @@ if __name__ == "__main__":
     p.add_argument("--orders", required=True)
     p.add_argument("--requests", required=True)
     p.add_argument("--portfolio", required=True)
+    p.add_argument("--logistics", required=False, default=None)
     p.add_argument("--output", default=str(OUTPUT_DIR / "dashboard.html"))
 
     args = p.parse_args()
@@ -962,6 +1405,7 @@ if __name__ == "__main__":
         args.requests,
         args.portfolio,
         args.output,
+        logistics_path=args.logistics,
     )
 
     print(args.output)
