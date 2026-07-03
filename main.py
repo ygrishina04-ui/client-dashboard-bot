@@ -43,18 +43,36 @@ dp = Dispatcher()
 
 user_files = {}
 
-REQUIRED = {
+REQUIRED_CLIENT = {
     "orders": "заказы",
     "requests": "запросы",
     "portfolio": "портфель",
+}
+
+OPTIONAL_FILES = {
+    "logistics": "логистика",
+}
+
+ALL_FILE_KINDS = {
+    **REQUIRED_CLIENT,
+    **OPTIONAL_FILES,
 }
 
 
 def detect_kind(filename: str, caption: str = ""):
     text = f"{filename} {caption}".lower()
 
-    if "order" in text or "заказ" in text:
-        return "orders"
+    # Важно: логистику проверяем раньше заказов,
+    # потому что логистический файл тоже может содержать слово ORDER.
+    if (
+        "лог" in text
+        or "логистика" in text
+        or "logistic" in text
+        or "logistics" in text
+        or "order лог" in text
+        or "заказы лог" in text
+    ):
+        return "logistics"
 
     if "crm" in text or "request" in text or "запрос" in text:
         return "requests"
@@ -66,6 +84,9 @@ def detect_kind(filename: str, caption: str = ""):
         or "клиент" in text
     ):
         return "portfolio"
+
+    if "order" in text or "заказ" in text:
+        return "orders"
 
     return None
 
@@ -223,8 +244,6 @@ def load_snoozed_clients():
         )
 
         raw = ws.get_all_values()
-        print("SNOOZE RAW VALUES:", raw, flush=True)
-
         result = {}
 
         if len(raw) < 2:
@@ -256,7 +275,7 @@ def load_snoozed_clients():
 
 
 # =====================
-# DASHBOARD REBUILD
+# DASHBOARD BUILD HELPERS
 # =====================
 
 async def download_telegram_file(file_id: str, destination: Path):
@@ -264,10 +283,16 @@ async def download_telegram_file(file_id: str, destination: Path):
     await bot.download_file(tg_file.file_path, destination=destination)
 
 
+def get_current_user_files(uid: int):
+    """Возвращает файлы пользователя из памяти текущего запуска."""
+    return user_files.setdefault(uid, {})
+
+
 async def rebuild_from_storage():
+    """Восстанавливает последний дашборд по file_id из Google Sheets."""
     saved = load_saved_files()
 
-    missing = [k for k in REQUIRED if k not in saved]
+    missing = [k for k in REQUIRED_CLIENT if k not in saved]
     if missing:
         print(f"REBUILD: не хватает файлов {missing}", flush=True)
         return False
@@ -275,6 +300,9 @@ async def rebuild_from_storage():
     paths = {}
 
     for kind, info in saved.items():
+        if kind not in ALL_FILE_KINDS:
+            continue
+
         filename = info.get("filename") or f"{kind}.xlsx"
         file_id = info.get("file_id")
 
@@ -291,11 +319,32 @@ async def rebuild_from_storage():
         requests_path=paths["requests"],
         portfolio_path=paths["portfolio"],
         output_path=str(OUTPUT),
-        snoozed_clients=snoozed_clients
+        snoozed_clients=snoozed_clients,
+        logistics_path=paths.get("logistics")
     )
 
     print("Дашборд восстановлен из Google Sheets FILES", flush=True)
     return True
+
+
+def can_build_client_dashboard(files: dict) -> bool:
+    return all(kind in files for kind in REQUIRED_CLIENT)
+
+
+def build_from_user_files(uid: int):
+    files = user_files[uid]
+
+    snoozed_clients = load_snoozed_clients()
+    print(f"SNOOZE LOADED: {len(snoozed_clients)}", flush=True)
+
+    build_dashboard(
+        order_path=files["orders"],
+        requests_path=files["requests"],
+        portfolio_path=files["portfolio"],
+        output_path=str(OUTPUT),
+        snoozed_clients=snoozed_clients,
+        logistics_path=files.get("logistics")
+    )
 
 
 # =====================
@@ -309,8 +358,9 @@ async def start(message: Message):
     await message.answer(
         "Пришлите 3 Excel-файла: <b>заказы</b>, <b>запросы</b>, "
         "<b>клиентский портфель</b>. Можно по одному файлу.\n\n"
+        "Файл <b>логистики</b> можно прислать отдельно с подписью: <b>логистика</b>.\n\n"
         "Если бот не поймет тип файла, отправьте файл с подписью: "
-        "<b>заказы</b>, <b>запросы</b> или <b>портфель</b>."
+        "<b>заказы</b>, <b>запросы</b>, <b>портфель</b> или <b>логистика</b>."
     )
 
 
@@ -343,7 +393,7 @@ async def rebuild(message: Message):
         else:
             await message.answer(
                 "Не удалось восстановить дашборд. "
-                "Возможно, еще не сохранены все 3 файла."
+                "Возможно, еще не сохранены все 3 обязательных файла."
             )
 
     except Exception as e:
@@ -368,7 +418,7 @@ async def chatid(message: Message):
 @dp.message(F.document)
 async def doc(message: Message):
     uid = message.from_user.id
-    user_files.setdefault(uid, {})
+    files = get_current_user_files(uid)
 
     filename = message.document.file_name or "file.xlsx"
     kind = detect_kind(filename, message.caption or "")
@@ -376,14 +426,14 @@ async def doc(message: Message):
     if not kind:
         await message.answer(
             "Не поняла тип файла. В подписи напишите: "
-            "<b>заказы</b> / <b>запросы</b> / <b>портфель</b>."
+            "<b>заказы</b> / <b>запросы</b> / <b>портфель</b> / <b>логистика</b>."
         )
         return
 
     path = UPLOADS / f"{uid}_{kind}_{filename}"
     await bot.download(message.document, destination=path)
 
-    user_files[uid][kind] = str(path)
+    files[kind] = str(path)
 
     try:
         save_uploaded_file_to_storage(
@@ -395,29 +445,39 @@ async def doc(message: Message):
         print("Не удалось сохранить file_id в Google Sheets:", flush=True)
         traceback.print_exc()
 
-    missing = [v for k, v in REQUIRED.items() if k not in user_files[uid]]
+    # Если пришла только логистика и уже есть сохраненные клиентские файлы — пробуем восстановить всё из storage.
+    if kind == "logistics" and not can_build_client_dashboard(files):
+        try:
+            ok = await rebuild_from_storage()
+            if ok:
+                await message.answer(
+                    "Файл <b>логистика</b> принят. Дашборд обновлен ✅",
+                    reply_markup=dashboard_keyboard()
+                )
+            else:
+                await message.answer(
+                    "Файл <b>логистика</b> принят. Для полной сборки дашборда нужны еще: "
+                    "заказы, запросы, портфель."
+                )
+        except Exception as e:
+            traceback.print_exc()
+            await message.answer(f"Файл логистики принят, но дашборд не пересобрался: <code>{e}</code>")
+        return
+
+    missing = [v for k, v in REQUIRED_CLIENT.items() if k not in files]
 
     if missing:
         await message.answer(
-            f"Файл <b>{REQUIRED[kind]}</b> принят. "
+            f"Файл <b>{ALL_FILE_KINDS[kind]}</b> принят. "
             f"Осталось прислать: {', '.join(missing)}."
         )
         return
 
     try:
-        snoozed_clients = load_snoozed_clients()
-        print(f"SNOOZE LOADED: {len(snoozed_clients)}", flush=True)
-
-        build_dashboard(
-            order_path=user_files[uid]["orders"],
-            requests_path=user_files[uid]["requests"],
-            portfolio_path=user_files[uid]["portfolio"],
-            output_path=str(OUTPUT),
-            snoozed_clients=snoozed_clients
-        )
+        build_from_user_files(uid)
 
         await message.answer(
-            "Дашборд обновлен ✅",
+            f"Файл <b>{ALL_FILE_KINDS[kind]}</b> принят. Дашборд обновлен ✅",
             reply_markup=dashboard_keyboard()
         )
 
@@ -509,6 +569,7 @@ async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     print("WEBHOOK CLEARED", flush=True)
 
+    # Восстановление не должно мешать порту Render.
     try:
         await rebuild_from_storage()
     except Exception:
@@ -521,3 +582,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
