@@ -463,14 +463,10 @@ def build_dashboard(
     }
 
     html = render_html(data)
+
     output_path = output_path or str(OUTPUT_DIR / "dashboard.html")
     Path(output_path).write_text(html, encoding="utf-8")
-
-    (OUTPUT_DIR / "dashboard_data.json").write_text(
-        json.dumps(data, ensure_ascii=False, default=str, indent=2),
-        encoding="utf-8",
-    )
-
+        
     return data
 
 
