@@ -316,15 +316,26 @@ th {
     display:block;
 }
 
+.nav-sub {
+    padding-left: 20px;
+    margin-top: 8px;
+}
+
 .nav-link {
-    display:block;
-    padding:8px 14px;
-    margin:4px 0;
-    border-radius:10px;
-    color:#d7e3ff;
-    text-decoration:none;
-    transition:.2s;
-    font-weight:600;
+    display: block;
+    padding: 8px 12px;
+    margin: 4px 0;
+    border-radius: 10px;
+    color: #cbd5e1;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.nav-link:hover,
+.nav-link.active-subtab {
+    background: rgba(255,255,255,.12);
+    color: #fff;
 }
 
 .nav-link:hover,
