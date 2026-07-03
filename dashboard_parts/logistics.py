@@ -43,6 +43,9 @@ def _num(series):
 
 
 def build_logistics_data(path, today):
+    if not path:
+        return None
+
     df = pd.read_excel(path)
 
     manager_col = "Менеджер логистики"
@@ -50,6 +53,14 @@ def build_logistics_data(path, today):
     units_col = "Кол-во грузовых единиц"
     arrival_col = "Последняя дата прибытия"
     order_col = "Номер заказа"
+
+    required_cols = [manager_col, status_col, units_col, arrival_col]
+    for col in required_cols:
+        if col not in df.columns:
+            raise ValueError(f"В файле логистики не найдена колонка: {col}")
+
+    if order_col not in df.columns:
+        order_col = df.columns[0]
 
     df[manager_col] = df[manager_col].fillna("").astype(str).str.strip()
     df[status_col] = df[status_col].fillna("").astype(str).str.strip()
@@ -82,9 +93,7 @@ def build_logistics_data(path, today):
         & (df["_arrival"] < next_month)
     ].copy()
 
-    rail_wait = df[
-        df[status_col] == "Ожидание выхода по ЖД"
-    ].copy()
+    rail_wait = df[df[status_col] == "Ожидание выхода по ЖД"].copy()
 
     return {
         "orders_work": int(len(work)),
@@ -102,7 +111,7 @@ def render_logistics(logistics):
         return """
         <div class='page' id='page-logistics'>
             <div class='placeholder'>
-                <h2>Логистика</h2>
+                <h2>🚢 Логистика</h2>
                 <p>Загрузите файл логистики в бота, чтобы увидеть показатели.</p>
             </div>
         </div>
@@ -156,11 +165,10 @@ def render_logistics(logistics):
                             <th>Грузовых единиц</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        {rows}
-                    </tbody>
+                    <tbody>{rows}</tbody>
                 </table>
             </div>
         </section>
     </div>
     """
+
