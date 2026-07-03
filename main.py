@@ -436,47 +436,56 @@ async def doc(message: Message):
     files[kind] = str(path)
 
     try:
-    save_uploaded_file_to_storage(
-        kind=kind,
-        file_id=message.document.file_id,
-        filename=filename
-    )
-except Exception:
-    print("Не удалось сохранить file_id в Google Sheets:", flush=True)
-    traceback.print_exc()
+        save_uploaded_file_to_storage(
+            kind=kind,
+            file_id=message.document.file_id,
+            filename=filename
+        )
+    except Exception:
+        print("Не удалось сохранить file_id в Google Sheets:", flush=True)
+        traceback.print_exc()
 
-if kind == "logistics":
-    try:
-        await rebuild_from_storage()
+    if kind == "logistics":
+        try:
+            ok = await rebuild_from_storage()
+
+            if ok:
+                await message.answer(
+                    "Файл <b>логистика</b> принят. Раздел логистики обновлен ✅",
+                    reply_markup=dashboard_keyboard()
+                )
+            else:
+                await message.answer(
+                    "Файл <b>логистика</b> принят. Для полной сборки дашборда нужны еще: "
+                    "заказы, запросы, портфель."
+                )
+
+        except Exception as e:
+            traceback.print_exc()
+            await message.answer(f"Не удалось обновить логистику: <code>{e}</code>")
+
+        return
+
+    missing = [v for k, v in REQUIRED_CLIENT.items() if k not in files]
+
+    if missing:
         await message.answer(
-            "Файл <b>логистика</b> принят. Раздел логистики обновлен ✅",
+            f"Файл <b>{ALL_FILE_KINDS[kind]}</b> принят. "
+            f"Осталось прислать: {', '.join(missing)}."
+        )
+        return
+
+    try:
+        build_from_user_files(uid)
+
+        await message.answer(
+            f"Файл <b>{ALL_FILE_KINDS[kind]}</b> принят. Дашборд обновлен ✅",
             reply_markup=dashboard_keyboard()
         )
+
     except Exception as e:
         traceback.print_exc()
-        await message.answer(f"Не удалось обновить логистику: <code>{e}</code>")
-    return
-
-missing = [v for k, v in REQUIRED_CLIENT.items() if k not in files]
-
-if missing:
-    await message.answer(
-        f"Файл <b>{ALL_FILE_KINDS[kind]}</b> принят. "
-        f"Осталось прислать: {', '.join(missing)}."
-    )
-    return
-
-try:
-    build_from_user_files(uid)
-
-    await message.answer(
-        f"Файл <b>{ALL_FILE_KINDS[kind]}</b> принят. Дашборд обновлен ✅",
-        reply_markup=dashboard_keyboard()
-    )
-
-except Exception as e:
-    traceback.print_exc()
-    await message.answer(f"Не удалось собрать дашборд: <code>{e}</code>")
+        await message.answer(f"Не удалось собрать дашборд: <code>{e}</code>")
 
 
 # =====================
@@ -575,5 +584,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
