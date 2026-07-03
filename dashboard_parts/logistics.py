@@ -172,3 +172,4 @@ def render_logistics(logistics):
     </div>
     """
 
+
