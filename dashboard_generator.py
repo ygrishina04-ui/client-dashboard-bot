@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dashboard_parts.logistics import build_logistics_data, render_logistics
+
 import json
 import math
 from datetime import datetime
@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Any, Dict
 
 import pandas as pd
+
+from dashboard_parts.styles import get_styles
+from dashboard_parts.scripts import get_scripts
+from dashboard_parts.logistics import build_logistics_data, render_logistics
 
 
 EXCLUDED_ORDER_STATUSES = {
@@ -32,44 +36,6 @@ CATEGORY_RULES = {
     "Нерегулярный": {"risk": 50, "lost": 60},
     "Нерегулярные": {"risk": 50, "lost": 60},
 }
-
-
-LOGISTICS_MANAGERS_WORK = [
-    "Валерия Конакова",
-    "Вероника Павлова",
-    "Дмитрий Шеховцов",
-    "Осипов Евгений",
-    "Терешкина Анастасия",
-    "Чекалов Феликс",
-]
-
-LOGISTICS_MANAGERS_TABLE = [
-    "Вероника Павлова",
-    "Дмитрий Шеховцов",
-    "Осипов Евгений",
-    "Терешкина Анастасия",
-    "Чекалов Феликс",
-]
-
-LOGISTICS_WORK_STATUSES = [
-    "Авто прямое",
-    "Автовывоз",
-    "Букинг",
-    "В Работе",
-    "В работе",
-    "До границы",
-    "ЖД",
-    "ЖД прямое",
-    "Море",
-    "Новый",
-    "Ожидание выхода по ЖД",
-    "ПТД",
-    "Порт",
-    "После границы",
-    "Размещение",
-    "Авиа",
-]
-
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
@@ -141,24 +107,14 @@ def esc_attr(v: Any) -> str:
 
 def find_profit_col(df: pd.DataFrame) -> str | None:
     target = "План. прибыль без НДС (Наша логистика)"
-
     for col in df.columns:
         if str(col).strip() == target:
             return col
-
     return None
 
 
 def find_request_number_col(df: pd.DataFrame) -> str | None:
-    variants = [
-        "Номер запроса",
-        "№ запроса",
-        "Номер записи",
-        "ID",
-        "Id",
-        "id",
-    ]
-
+    variants = ["Номер запроса", "№ запроса", "Номер записи", "ID", "Id", "id"]
     normalized = {str(c).strip().lower(): c for c in df.columns}
 
     for v in variants:
@@ -176,41 +132,23 @@ def find_request_number_col(df: pd.DataFrame) -> str | None:
 
 def get_col(df: pd.DataFrame, names: list[str], default: str | None = None) -> str | None:
     normalized = {str(c).strip().lower(): c for c in df.columns}
-
     for name in names:
         key = name.strip().lower()
         if key in normalized:
             return normalized[key]
-
     return default
 
 
 def norm_client_name(x: Any) -> str:
     value = str(x).strip().lower()
-
     replacements = [
-        '"',
-        "«",
-        "»",
-        "'",
-        "`",
-        "ооо ",
-        "оoo ",
-        "ип ",
-        "зао ",
-        "ао ",
-        "пао ",
+        '"', "«", "»", "'", "`",
+        "ооо ", "оoo ", "ип ", "зао ", "ао ", "пао ",
         "общество с ограниченной ответственностью ",
-        ".",
-        ",",
-        " ",
-        "-",
-        "_",
+        ".", ",", " ", "-", "_",
     ]
-
     for repl in replacements:
         value = value.replace(repl, "")
-
     return value
 
 
@@ -220,7 +158,6 @@ def portfolio_status(row: pd.Series, today: datetime):
 
     last_order = to_date(row.get("Дата последнего заказа"))
     last_req = to_date(row.get("Дата последнего запроса"))
-
     dates = [d for d in [last_order, last_req] if not pd.isna(d)]
 
     if not dates:
@@ -340,10 +277,7 @@ def build_dashboard(
         & (req["_request_date"] < next_month_start)
     ].copy()
 
-    req_status_counts = {
-        s: int((req[req_status_col] == s).sum())
-        for s in REQUEST_STATUSES
-    }
+    req_status_counts = {s: int((req[req_status_col] == s).sum()) for s in REQUEST_STATUSES}
 
     req_mgr = (
         req.groupby([req_manager_col, req_status_col])
@@ -368,7 +302,6 @@ def build_dashboard(
             & (req[due_col].notna())
             & (req[due_col] <= pd.Timestamp(today) - pd.Timedelta(days=3))
         ].copy()
-
         attention_req["_days_overdue"] = (
             pd.Timestamp(today).normalize() - attention_req[due_col].dt.normalize()
         ).dt.days
@@ -377,9 +310,7 @@ def build_dashboard(
         attention_req["_days_overdue"] = []
 
     request_number_col = find_request_number_col(req)
-    attention_req["_request_number"] = (
-        attention_req[request_number_col].apply(format_cell) if request_number_col else ""
-    )
+    attention_req["_request_number"] = attention_req[request_number_col].apply(format_cell) if request_number_col else ""
 
     # =====================
     # PORTFOLIO
@@ -410,12 +341,7 @@ def build_dashboard(
     port["_status"] = statuses
     port["_days"] = days
     port["_last_activity"] = last_dates
-
-    if port_group_col:
-        port["_group"] = port[port_group_col].apply(clean_str)
-    else:
-        port["_group"] = "Не указана"
-
+    port["_group"] = port[port_group_col].apply(clean_str) if port_group_col else "Не указана"
     port["_sign"] = port[port_sign_col].apply(clean_str) if port_sign_col else "Не указан"
     port["_orders_count"] = safe_num(port[port_orders_count_col]) if port_orders_count_col else 0
 
@@ -452,32 +378,26 @@ def build_dashboard(
         item = snoozed_norm.get(norm_client_name(client_name))
         if not item:
             return False
-
         until = pd.to_datetime(item.get("until"), errors="coerce")
         if pd.isna(until):
             return False
-
         return pd.Timestamp(until).normalize() > today_norm
 
     priority_all = port[port["_status"].isin(["РИСК", "LOST"])].copy()
     priority_all["_snoozed"] = priority_all[port_name_col].apply(is_snoozed)
     snoozed_active_count = int(priority_all["_snoozed"].sum())
-
     priority = priority_all[~priority_all["_snoozed"]].copy()
 
     def priority_score(r: pd.Series) -> float:
         score = float(r["_days"])
-
         if str(r["_group"]).upper() == "A" and r["_status"] == "LOST":
             score += 10000
         elif str(r["_group"]).upper() == "A":
             score += 5000
-
         if "Регуляр" in str(r["_sign"]) and r["_status"] == "LOST":
             score += 3000
         elif "Регуляр" in str(r["_sign"]):
             score += 1000
-
         score += float(r.get("_orders_count", 0)) * 10
         return score
 
@@ -490,7 +410,7 @@ def build_dashboard(
         + [str(x) for x in port.get(port_manager_col, pd.Series(dtype=str)).dropna().unique()]
     ))
 
-    logistics_data = build_logistics_data(logistics_path, today)
+    logistics_data = build_logistics_data(logistics_path, today) if logistics_path else None
 
     data = {
         "generated_at": today.strftime("%d.%m.%Y %H:%M"),
@@ -517,11 +437,7 @@ def build_dashboard(
                 req_status_col,
                 "_days_overdue",
             ]].head(100).to_dict("records"),
-            "cols": {
-                "company": req_company_col,
-                "manager": req_manager_col,
-                "status": req_status_col,
-            },
+            "cols": {"company": req_company_col, "manager": req_manager_col, "status": req_status_col},
         },
         "portfolio": {
             "total": int(len(port)),
@@ -542,15 +458,11 @@ def build_dashboard(
                 "_days",
                 "_last_activity",
             ]].to_dict("records"),
-            "cols": {
-                "name": port_name_col,
-                "manager": port_manager_col,
-            },
+            "cols": {"name": port_name_col, "manager": port_manager_col},
         },
     }
 
     html = render_html(data)
-
     output_path = output_path or str(OUTPUT_DIR / "dashboard.html")
     Path(output_path).write_text(html, encoding="utf-8")
 
@@ -593,7 +505,6 @@ def render_html(d: Dict[str, Any]) -> str:
         for r in d["requests"]["by_manager"]
     )
 
-    # Request attention grouped by client + manager
     attention_grouped: dict[tuple[str, str], dict[str, Any]] = {}
     req_cols = d["requests"]["cols"]
 
@@ -603,13 +514,7 @@ def render_html(d: Dict[str, Any]) -> str:
         key = (client, manager)
 
         if key not in attention_grouped:
-            attention_grouped[key] = {
-                "client": client,
-                "manager": manager,
-                "count": 0,
-                "max_days": 0,
-                "items": [],
-            }
+            attention_grouped[key] = {"client": client, "manager": manager, "count": 0, "max_days": 0, "items": []}
 
         days = int(r.get("_days_overdue") or 0)
         attention_grouped[key]["count"] += 1
@@ -621,7 +526,6 @@ def render_html(d: Dict[str, Any]) -> str:
         })
 
     req_attention_rows = ""
-
     for item in attention_grouped.values():
         details_rows = "".join(
             f"<tr class='detail-row'>"
@@ -630,7 +534,6 @@ def render_html(d: Dict[str, Any]) -> str:
             f"</tr>"
             for sub in item["items"]
         )
-
         req_attention_rows += (
             f"<tbody class='attention-group' data-manager='{esc_attr(item['manager'])}'>"
             f"<tr class='attention-main'>"
@@ -660,12 +563,7 @@ def render_html(d: Dict[str, Any]) -> str:
     att_rows = ""
 
     for r in d["portfolio"]["attention"]:
-        cls = (
-            "critical"
-            if r["_status"] == "LOST" and str(r["_group"]).upper() == "A"
-            else ("lost" if r["_status"] == "LOST" else "risk")
-        )
-
+        cls = "critical" if r["_status"] == "LOST" and str(r["_group"]).upper() == "A" else ("lost" if r["_status"] == "LOST" else "risk")
         client_name = format_cell(r.get(port_cols["name"]))
         manager_name = format_cell(r.get(port_cols["manager"]))
 
@@ -697,9 +595,7 @@ def render_html(d: Dict[str, Any]) -> str:
             f"<option value='Клиент нам неинтересен'>Клиент нам неинтересен</option>"
             f"<option value='Другое'>Другое</option>"
             f"</select> "
-            f"<button class='snooze-btn' "
-            f"data-client='{esc_attr(client_name)}' "
-            f"data-manager='{esc_attr(manager_name)}'>Отложить</button>"
+            f"<button class='snooze-btn' data-client='{esc_attr(client_name)}' data-manager='{esc_attr(manager_name)}'>Отложить</button>"
             f"</td>"
             f"</tr>"
         )
@@ -709,6 +605,10 @@ def render_html(d: Dict[str, Any]) -> str:
         for k, v in d["requests"]["status_counts"].items()
     )
 
+    styles = get_styles()
+    scripts = get_scripts()
+    logistics_html = render_logistics(d.get("logistics"))
+
     return f"""
 <!doctype html>
 <html lang='ru'>
@@ -716,313 +616,7 @@ def render_html(d: Dict[str, Any]) -> str:
 <meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Дашборд Инвиктика</title>
-<style>
-:root {{
-    --blue:#3498db;
-    --pink:#e84393;
-    --violet:#6c5ce7;
-    --dark:#172033;
-    --muted:#667085;
-    --red:#e74c3c;
-}}
-
-* {{ box-sizing:border-box; }}
-
-body {{
-    margin:0;
-    font-family:Inter,Arial,sans-serif;
-    background:linear-gradient(135deg,#cfe8ff 0%,#d9d6ff 45%,#ffd4ea 100%);
-    color:#1f2937;
-}}
-
-.app-shell {{
-    display:grid;
-    grid-template-columns:235px 1fr;
-    min-height:100vh;
-}}
-
-.sidebar {{
-    background:linear-gradient(180deg,#172033 0%,#202a44 100%);
-    color:white;
-    padding:26px 20px;
-    position:sticky;
-    top:0;
-    height:100vh;
-    box-shadow:14px 0 38px rgba(23,32,51,.16);
-}}
-
-.side-logo {{
-    font-size:22px;
-    font-weight:900;
-    margin-bottom:34px;
-    color:white;
-    line-height:1.18;
-    letter-spacing:-.02em;
-}}
-
-.nav-section {{ margin-bottom:10px; }}
-
-.nav-item {{
-    padding:12px 14px;
-    border-radius:14px;
-    color:#dbeafe;
-    font-weight:800;
-    margin-bottom:6px;
-    cursor:pointer;
-    transition:.2s;
-}}
-
-.nav-item:hover {{
-    background:rgba(255,255,255,.09);
-    color:white;
-}}
-
-.nav-item.active {{
-    background:linear-gradient(135deg,#3498db,#6c5ce7);
-    color:white;
-    box-shadow:0 12px 26px rgba(52,152,219,.26);
-}}
-
-.nav-sub {{
-    padding-left:38px;
-    color:#cbd5e1;
-    font-size:14px;
-    line-height:1.7;
-    margin:4px 0 18px;
-}}
-
-.main-area {{ min-width:0; }}
-.page {{ display:none; }}
-.page.active-page {{ display:block; }}
-
-.wrap {{
-    max-width:1480px;
-    margin:0 auto;
-    padding:28px 32px;
-}}
-
-.hero {{
-    display:flex;
-    justify-content:space-between;
-    gap:16px;
-    align-items:center;
-    margin-bottom:20px;
-}}
-
-h1 {{
-    margin:0;
-    font-size:34px;
-    letter-spacing:-.04em;
-}}
-
-.sub {{
-    color:var(--muted);
-    margin-top:8px;
-}}
-
-.badge {{
-    padding:10px 14px;
-    border-radius:999px;
-    background:#fff;
-    border:1px solid #e9ecf5;
-    box-shadow:0 10px 30px rgba(43,55,90,.08);
-}}
-
-.toolbar {{
-    display:flex;
-    gap:12px;
-    align-items:center;
-    justify-content:space-between;
-    margin:16px 0 20px;
-    padding:14px 16px;
-    border-radius:22px;
-    background:rgba(255,255,255,.82);
-    border:1px solid #edf0fa;
-    box-shadow:0 14px 40px rgba(42,56,100,.10);
-}}
-
-.toolbar label {{
-    font-size:13px;
-    color:var(--muted);
-    text-transform:uppercase;
-    letter-spacing:.06em;
-}}
-
-select {{
-    border:1px solid #dde5f3;
-    border-radius:14px;
-    padding:11px 14px;
-    background:white;
-    color:var(--dark);
-    font-weight:700;
-}}
-
-.filter-note {{
-    font-size:13px;
-    color:var(--muted);
-}}
-
-.grid {{
-    display:grid;
-    gap:16px;
-}}
-
-.kpi {{
-    grid-template-columns:repeat(4,1fr);
-    margin-bottom:16px;
-}}
-
-.three-kpi {{ grid-template-columns:repeat(3,1fr); }}
-
-.card {{
-    background:rgba(255,255,255,.92);
-    backdrop-filter:blur(8px);
-    border-radius:20px;
-    padding:20px;
-    box-shadow:0 12px 30px rgba(91,33,182,.12);
-    border:1px solid rgba(255,255,255,.5);
-}}
-
-.label {{
-    font-size:13px;
-    color:var(--muted);
-    text-transform:uppercase;
-    letter-spacing:.06em;
-}}
-
-.num {{
-    font-size:34px;
-    font-weight:850;
-    margin-top:8px;
-}}
-
-.pink {{ color:var(--pink); }}
-.blue {{ color:var(--blue); }}
-.violet {{ color:var(--violet); }}
-.red {{ color:var(--red); }}
-
-.section {{ margin-top:24px; }}
-h2 {{ font-size:24px; margin:0 0 14px; }}
-.two {{ grid-template-columns:1.1fr .9fr; }}
-
-table {{
-    width:100%;
-    border-collapse:collapse;
-    font-size:14px;
-}}
-
-th,td {{
-    text-align:left;
-    padding:12px;
-    border-bottom:1px solid #edf0f7;
-}}
-
-th {{
-    color:var(--muted);
-    font-size:12px;
-    text-transform:uppercase;
-    letter-spacing:.06em;
-}}
-
-.stage {{
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    padding:16px;
-    margin-bottom:10px;
-    border-radius:18px;
-    background:linear-gradient(135deg,#eef2ff,#fdf2f8);
-    border:1px solid #dbeafe;
-}}
-
-.stage b {{ font-size:26px; }}
-.hot {{ font-weight:800; color:var(--red); }}
-
-.critical td {{
-    background:#fff0f3!important;
-    color:#9f1239;
-    font-weight:700;
-}}
-
-.lost td {{ background:#fff7f8; }}
-.risk td {{ background:#fffaf0; }}
-
-.note {{
-    font-size:12px;
-    color:var(--muted);
-    margin-top:8px;
-}}
-
-.hidden-by-filter {{ display:none!important; }}
-
-.toggle-details {{
-    border:0;
-    background:#eef2ff;
-    border-radius:8px;
-    padding:6px 9px;
-    cursor:pointer;
-    font-weight:800;
-}}
-
-.detail-row {{ display:none; }}
-
-.detail-row td {{
-    background:#f8fafc;
-    color:#475467;
-    font-size:13px;
-}}
-
-.attention-group.open .detail-row {{ display:table-row; }}
-.attention-group.open .toggle-details {{ background:#dbeafe; }}
-
-.snooze-cell {{ white-space:nowrap; }}
-
-.snooze-days,
-.snooze-reason,
-.snooze-date {{
-    border:1px solid #d6dcf5;
-    border-radius:10px;
-    padding:8px 10px;
-    background:white;
-    font-weight:600;
-    font-size:13px;
-    margin-right:6px;
-    max-width:145px;
-}}
-
-.snooze-days:focus,
-.snooze-reason:focus,
-.snooze-date:focus {{
-    outline:none;
-    border-color:#6c5ce7;
-    box-shadow:0 0 0 3px rgba(108,92,231,.15);
-}}
-
-.snooze-btn {{
-    border:0;
-    border-radius:10px;
-    padding:8px 10px;
-    background:linear-gradient(135deg,#3498db,#6c5ce7);
-    color:white;
-    cursor:pointer;
-    font-weight:700;
-}}
-
-.placeholder {{
-    padding:36px;
-    border-radius:24px;
-    background:rgba(255,255,255,.9);
-    box-shadow:0 12px 30px rgba(91,33,182,.12);
-}}
-
-@media(max-width:900px) {{
-    .app-shell {{ display:block; }}
-    .sidebar {{ position:relative; height:auto; }}
-    .kpi,.three-kpi,.two {{ grid-template-columns:1fr; }}
-    .hero,.toolbar {{ display:block; }}
-    select {{ width:100%; margin-top:8px; }}
-}}
-</style>
+{styles}
 </head>
 <body>
 <div class='app-shell'>
@@ -1034,11 +628,12 @@ th {{
         <div class='nav-item' data-page='home'>🏠 Главная</div>
     </div>
 
-    <div class='nav-item active' data-page='clients'>👥 Клиентский отдел</div>
-        <div class="nav-sub">
-            <a href="#" class="nav-link subtab active-subtab" data-section="orders">Заказы</a>
-            <a href="#" class="nav-link subtab" data-section="requests">Запросы</a>
-            <a href="#" class="nav-link subtab" data-section="portfolio">Портфель</a>
+    <div class='nav-section'>
+        <div class='nav-item active' data-page='clients'>👥 Клиентский отдел</div>
+        <div class='nav-sub'>
+            <a href='#' class='nav-link subtab active-subtab' data-section='orders'>Заказы</a>
+            <a href='#' class='nav-link subtab' data-section='requests'>Запросы</a>
+            <a href='#' class='nav-link subtab' data-section='portfolio'>Портфель</a>
         </div>
     </div>
 
@@ -1078,310 +673,119 @@ th {{
 </div>
 
 <div class='page active-page' id='page-clients'>
-
-<div class='toolbar'>
-    <div>
-        <label for='managerFilter'>Фильтр по менеджеру</label><br>
-        <select id='managerFilter'>
-            <option value='__all__'>Все менеджеры</option>
-            {managers_options}
-        </select>
-    </div>
-    <div class='filter-note'>
-        Фильтр применяется к таблицам: заказы, запросы, портфель и блок “Требует внимания”.
-        KPI сверху показывают общую картину.
-    </div>
-</div>
-
-<section class='section dashboard-section active-section' id='orders-section'>
-    <h2>1. Заказы</h2>
-    <div class='grid kpi three-kpi'>
-        <div class='card'>
-            <div class='label'>Заказов в работе</div>
-            <div class='num blue'>{d['orders']['active_count']}</div>
+    <div class='toolbar'>
+        <div>
+            <label for='managerFilter'>Фильтр по менеджеру</label><br>
+            <select id='managerFilter'>
+                <option value='__all__'>Все менеджеры</option>
+                {managers_options}
+            </select>
         </div>
-        <div class='card'>
-            <div class='label'>Клиентов с заказами</div>
-            <div class='num violet'>{d['orders']['active_clients']}</div>
-        </div>
-        <div class='card'>
-            <div class='label'>Грузовых единиц</div>
-            <div class='num pink'>{d['orders']['units']}</div>
+        <div class='filter-note'>
+            Фильтр применяется к таблицам: заказы, запросы, портфель и блок “Требует внимания”.
+            Показатели сверху показывают общую картину.
         </div>
     </div>
 
-    <div class='card'>
-        <h2>Заказы по менеджерам</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Менеджер</th>
-                    <th>Заказы</th>
-                    <th>Клиенты</th>
-                    <th>Гр. ед.</th>
-                    <th>План прибыль по заказам в работе</th>
-                    <th>План прибыль текущего месяца</th>
-                </tr>
-            </thead>
-            <tbody>{order_rows}</tbody>
-        </table>
-    </div>
-</section>
-
-<section class='section dashboard-section' id='requests-section'>
-    <h2>2. Запросы</h2>
-    <div class='grid two'>
-        <div class='card'>
-            <h2>Воронка запросов</h2>
-            <div class='stage'>
-                <span>Итого заведено запросов</span>
-                <b>{d['requests']['total']}</b>
-            </div>
-            {status_cards}
+    <section class='section dashboard-section active-section' id='orders-section'>
+        <h2>1. Заказы</h2>
+        <div class='grid kpi three-kpi'>
+            <div class='card'><div class='label'>Заказов в работе</div><div class='num blue'>{d['orders']['active_count']}</div></div>
+            <div class='card'><div class='label'>Клиентов с заказами</div><div class='num violet'>{d['orders']['active_clients']}</div></div>
+            <div class='card'><div class='label'>Грузовых единиц</div><div class='num pink'>{d['orders']['units']}</div></div>
         </div>
 
         <div class='card'>
-            <h2>Без обратной связи</h2>
-            <div class='note'>Статус “Ком предложение отправлено” и дата выполнения старше 3 дней.</div>
+            <h2>Заказы по менеджерам</h2>
             <table>
-                <thead>
-                    <tr>
-                        <th></th>
-                        <th>Клиент</th>
-                        <th>Менеджер</th>
-                        <th>Запросов</th>
-                        <th>Макс. дней</th>
-                    </tr>
-                </thead>
-                {req_attention_rows}
+                <thead><tr><th>Менеджер</th><th>Заказы</th><th>Клиенты</th><th>Гр. ед.</th><th>План прибыль по заказам в работе</th><th>План прибыль текущего месяца</th></tr></thead>
+                <tbody>{order_rows}</tbody>
             </table>
         </div>
-    </div>
+    </section>
 
-    <div class='card section'>
-        <h2>Запросы по менеджерам</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Менеджер</th>
-                    <th>Итого заведено запросов</th>
-                    {''.join(f'<th>{s}</th>' for s in REQUEST_STATUSES)}
-                </tr>
-            </thead>
-            <tbody>{req_mgr_rows}</tbody>
-        </table>
-    </div>
-</section>
+    <section class='section dashboard-section' id='requests-section'>
+        <h2>2. Запросы</h2>
+        <div class='grid two'>
+            <div class='card'>
+                <h2>Воронка запросов</h2>
+                <div class='stage'><span>Итого заведено запросов</span><b>{d['requests']['total']}</b></div>
+                {status_cards}
+            </div>
+            <div class='card'>
+                <h2>Без обратной связи</h2>
+                <div class='note'>Статус “Ком предложение отправлено” и дата выполнения старше 3 дней.</div>
+                <table>
+                    <thead><tr><th></th><th>Клиент</th><th>Менеджер</th><th>Запросов</th><th>Макс. дней</th></tr></thead>
+                    {req_attention_rows}
+                </table>
+            </div>
+        </div>
 
-<section class='section dashboard-section' id='portfolio-section'>
-    <h2>3. Клиентский портфель</h2>
-
-    <div class='grid kpi'>
-        <div class='card'>
-            <div class='label'>Всего клиентов</div>
-            <div class='num'>{d['portfolio']['total']}</div>
-        </div>
-        <div class='card'>
-            <div class='label'>Активные</div>
-            <div class='num blue'>{d['portfolio']['active']}</div>
-        </div>
-        <div class='card'>
-            <div class='label'>Риск</div>
-            <div class='num pink'>{d['portfolio']['risk']}</div>
-        </div>
-        <div class='card'>
-            <div class='label'>LOST</div>
-            <div class='num red'>{d['portfolio']['lost']}</div>
-        </div>
-    </div>
-
-    <div class='grid two'>
-        <div class='card'>
-            <h2>Портфель по менеджерам</h2>
+        <div class='card section'>
+            <h2>Запросы по менеджерам</h2>
             <table>
-                <thead>
-                    <tr>
-                        <th>Менеджер</th>
-                        <th>Всего</th>
-                        <th>Активные</th>
-                        <th>Риск</th>
-                        <th>Lost</th>
-                        <th>A Lost</th>
-                    </tr>
-                </thead>
-                <tbody>{port_mgr_rows}</tbody>
+                <thead><tr><th>Менеджер</th><th>Итого заведено запросов</th>{''.join(f'<th>{s}</th>' for s in REQUEST_STATUSES)}</tr></thead>
+                <tbody>{req_mgr_rows}</tbody>
             </table>
         </div>
+    </section>
 
-        <div class='card'>
-            <h2>Сигналы для руководителя</h2>
-            <div class='stage'>
-                <span>Регулярные в риске</span>
-                <b class='pink'>{d['portfolio']['regular_risk']}</b>
+    <section class='section dashboard-section' id='portfolio-section'>
+        <h2>3. Клиентский портфель</h2>
+        <div class='grid kpi'>
+            <div class='card'><div class='label'>Всего клиентов</div><div class='num'>{d['portfolio']['total']}</div></div>
+            <div class='card'><div class='label'>Активные</div><div class='num blue'>{d['portfolio']['active']}</div></div>
+            <div class='card'><div class='label'>Риск</div><div class='num pink'>{d['portfolio']['risk']}</div></div>
+            <div class='card'><div class='label'>LOST</div><div class='num red'>{d['portfolio']['lost']}</div></div>
+        </div>
+
+        <div class='grid two'>
+            <div class='card'>
+                <h2>Портфель по менеджерам</h2>
+                <table>
+                    <thead><tr><th>Менеджер</th><th>Всего</th><th>Активные</th><th>Риск</th><th>Lost</th><th>A Lost</th></tr></thead>
+                    <tbody>{port_mgr_rows}</tbody>
+                </table>
             </div>
-            <div class='stage'>
-                <span>Клиенты A в LOST</span>
-                <b class='red'>{d['portfolio']['a_lost']}</b>
-            </div>
-            <div class='stage'>
-                <span>Отложены до даты</span>
-                <b class='violet'>{d['portfolio']['snoozed_active']}</b>
+
+            <div class='card'>
+                <h2>Сигналы для руководителя</h2>
+                <div class='stage'><span>Регулярные в риске</span><b class='pink'>{d['portfolio']['regular_risk']}</b></div>
+                <div class='stage'><span>Клиенты A в LOST</span><b class='red'>{d['portfolio']['a_lost']}</b></div>
+                <div class='stage'><span>Отложены до даты</span><b class='violet'>{d['portfolio']['snoozed_active']}</b></div>
             </div>
         </div>
-    </div>
 
-    <div class='card section'>
-        <h2>Требует внимания</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Клиент</th>
-                    <th>Менеджер</th>
-                    <th>Признак</th>
-                    <th>Группа</th>
-                    <th>Заказов</th>
-                    <th>Статус</th>
-                    <th>Дней без активности</th>
-                    <th>Отложить</th>
-                </tr>
-            </thead>
-            <tbody>{att_rows}</tbody>
-        </table>
-    </div>
-</section>
-
+        <div class='card section'>
+            <h2>Требует внимания</h2>
+            <table>
+                <thead><tr><th>Клиент</th><th>Менеджер</th><th>Признак</th><th>Группа</th><th>Заказов</th><th>Статус</th><th>Дней без активности</th><th>Отложить</th></tr></thead>
+                <tbody>{att_rows}</tbody>
+            </table>
+        </div>
+    </section>
 </div>
 
-{render_logistics(d.get("logistics"))}
+{logistics_html}
 
 <div class='page' id='page-customs'>
-    <div class='placeholder'>
-        <h2>Таможня</h2>
-        <p>Раздел в разработке: ДТ, выпуски, досмотры, МИДК, IM70 / IM40.</p>
-    </div>
+    <div class='placeholder'><h2>Таможня</h2><p>Раздел в разработке: ДТ, выпуски, досмотры, МИДК, IM70 / IM40.</p></div>
 </div>
 
 <div class='page' id='page-sales'>
-    <div class='placeholder'>
-        <h2>Отдел продаж</h2>
-        <p>Раздел в разработке: воронка, новые клиенты, КП, конверсия и KPI МОП.</p>
-    </div>
+    <div class='placeholder'><h2>Отдел продаж</h2><p>Раздел в разработке: воронка, новые клиенты, КП, конверсия и KPI МОП.</p></div>
 </div>
 
 <div class='page' id='page-settings'>
-    <div class='placeholder'>
-        <h2>Настройки</h2>
-        <p>Здесь позже будут настройки дашборда, отложенные клиенты и параметры отображения.</p>
-    </div>
+    <div class='placeholder'><h2>Настройки</h2><p>Здесь позже будут настройки дашборда, отложенные клиенты и параметры отображения.</p></div>
 </div>
 
 </div>
 </main>
 </div>
 
-<script>
-const filter = document.getElementById('managerFilter');
-
-function applyManagerFilter() {{
-    if (!filter) return;
-    const value = filter.value;
-
-    document.querySelectorAll('tr[data-manager]').forEach(row => {{
-        const manager = row.getAttribute('data-manager') || '';
-        row.classList.toggle(
-            'hidden-by-filter',
-            value !== '__all__' && manager !== value
-        );
-    }});
-}}
-
-if (filter) {{
-    filter.addEventListener('change', applyManagerFilter);
-}}
-
-document.querySelectorAll('.nav-item[data-page]').forEach(item => {{
-    item.addEventListener('click', () => {{
-        const page = item.dataset.page;
-
-        document.querySelectorAll('.nav-item[data-page]').forEach(i => {{
-            i.classList.remove('active');
-        }});
-
-        item.classList.add('active');
-
-        document.querySelectorAll('.page').forEach(p => {{
-            p.classList.remove('active-page');
-        }});
-
-        const target = document.getElementById('page-' + page);
-        if (target) {{
-            target.classList.add('active-page');
-        }}
-    }});
-}});
-
-document.querySelectorAll('.toggle-details').forEach(btn => {{
-    btn.addEventListener('click', () => {{
-        const group = btn.closest('.attention-group');
-        group.classList.toggle('open');
-        btn.textContent = group.classList.contains('open') ? '▼' : '▶';
-    }});
-}});
-
-document.querySelectorAll('.snooze-btn').forEach(btn => {{
-    btn.addEventListener('click', async () => {{
-        const row = btn.closest('tr');
-        const dateInput = row.querySelector('.snooze-date');
-        const daysSelect = row.querySelector('.snooze-days');
-        const reasonSelect = row.querySelector('.snooze-reason');
-
-        let until = dateInput.value;
-        const days = daysSelect.value;
-        const reason = reasonSelect.value;
-
-        if (!until && days) {{
-            const d = new Date();
-            d.setDate(d.getDate() + parseInt(days));
-            until = d.toISOString().slice(0, 10);
-        }}
-
-        if (!until) {{
-            alert('Выберите срок или дату');
-            return;
-        }}
-
-        if (!reason) {{
-            alert('Выберите причину');
-            return;
-        }}
-
-        const client = btn.dataset.client;
-        const manager = btn.dataset.manager;
-
-        const response = await fetch('/snooze', {{
-            method: 'POST',
-            headers: {{
-                'Content-Type': 'application/json'
-            }},
-            body: JSON.stringify({{
-                client: client,
-                manager: manager,
-                until: until,
-                reason: reason
-            }})
-        }});
-
-        const result = await response.json();
-
-        if (result.ok) {{
-            row.style.display = 'none';
-            alert('Клиент отложен до ' + until);
-        }} else {{
-            alert('Ошибка: ' + result.error);
-        }}
-    }});
-}});
-</script>
+{scripts}
 </body>
 </html>
 """
