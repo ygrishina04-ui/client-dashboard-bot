@@ -1034,12 +1034,11 @@ th {{
         <div class='nav-item' data-page='home'>🏠 Главная</div>
     </div>
 
-    <div class='nav-section'>
-        <div class='nav-item active' data-page='clients'>👥 Клиентский отдел</div>
+    <div class='nav-item active' data-page='clients'>👥 Клиентский отдел</div>
         <div class="nav-sub">
-            <a href="#" class="nav-link subtab active-subtab" data-section="orders">• Заказы</a>
-            <a href="#" class="nav-link subtab" data-section="requests">• Запросы</a>
-            <a href="#" class="nav-link subtab" data-section="portfolio">• Портфель</a>
+            <a href="#" class="nav-link subtab active-subtab" data-section="orders">Заказы</a>
+            <a href="#" class="nav-link subtab" data-section="requests">Запросы</a>
+            <a href="#" class="nav-link subtab" data-section="portfolio">Портфель</a>
         </div>
     </div>
 
