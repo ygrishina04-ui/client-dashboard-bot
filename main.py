@@ -441,6 +441,17 @@ async def doc(message: Message):
             file_id=message.document.file_id,
             filename=filename
         )
+        if kind == "logistics":
+    try:
+        await rebuild_from_storage()
+        await message.answer(
+            "Файл <b>логистика</b> принят. Раздел логистики обновлен ✅",
+            reply_markup=dashboard_keyboard()
+        )
+    except Exception as e:
+        traceback.print_exc()
+        await message.answer(f"Не удалось обновить логистику: <code>{e}</code>")
+    return
     except Exception:
         print("Не удалось сохранить file_id в Google Sheets:", flush=True)
         traceback.print_exc()
