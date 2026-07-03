@@ -317,32 +317,31 @@ th {
 }
 
 .nav-sub {
-    padding-left: 20px;
+    padding-left: 18px;
     margin-top: 8px;
 }
 
-.nav-link {
+.nav-sub br {
+    display: none;
+}
+
+.nav-link,
+.nav-sub a {
     display: block;
     padding: 8px 12px;
     margin: 4px 0;
     border-radius: 10px;
-    color: #cbd5e1;
-    text-decoration: none;
+    color: #cbd5e1 !important;
+    text-decoration: none !important;
     font-size: 14px;
     font-weight: 700;
 }
 
 .nav-link:hover,
-.nav-link.active-subtab {
+.nav-link.active-subtab,
+.nav-sub a:hover {
     background: rgba(255,255,255,.12);
-    color: #fff;
-}
-
-.nav-link:hover,
-.nav-link.active-subtab {
-    background:rgba(255,255,255,.14);
-    color:#fff;
-    padding-left:18px;
+    color: #fff !important;
 }
 
 </style>
