@@ -174,12 +174,14 @@ def _manager_card(manager_data: dict) -> str:
     card_style = (
         "border:2px solid #ef4444;"
         "background:linear-gradient(135deg,#fff1f2,#ffe4e6);"
-        "box-shadow:0 14px 34px rgba(239,68,68,.20);"
+        "box-shadow:0 14px 34px rgba(239,68,68,.18);"
         if overloaded
-        else ""
+        else
+        "border-top:4px solid #6c5ce7;"
+        "background:linear-gradient(180deg,#ffffff,#f8f7ff);"
     )
 
-    number_style = "color:#dc2626;" if overloaded else ""
+    number_style = "color:#dc2626;" if overloaded else "color:#172033;"
 
     return f"""
     <div class='card' style='{card_style}'>
@@ -188,10 +190,19 @@ def _manager_card(manager_data: dict) -> str:
             {int(manager_data["orders"])}
         </div>
         <div class='note'>
-            заказов в работе · {int(manager_data["units"])} гр. ед.
+            заказов в работе
+        </div>
+        <div style='margin-top:10px;font-weight:800;color:#667085;'>
+            {int(manager_data["units"])} гр. ед.
         </div>
     </div>
     """
+
+
+def _status_cell(value: int) -> str:
+    if int(value) == 0:
+        return "<td style='color:#c0c6d4;'>0</td>"
+    return f"<td style='font-weight:800;color:#172033;'>{int(value)}</td>"
 
 
 def render_logistics(logistics):
@@ -232,33 +243,43 @@ def render_logistics(logistics):
         order_style = (
             "color:#dc2626;font-size:18px;font-weight:900;"
             if overloaded
-            else "font-weight:800;"
+            else "font-weight:900;color:#172033;"
         )
 
         cells = "".join(
-            f"<td>{int(manager['statuses'].get(status, 0))}</td>"
+            _status_cell(manager["statuses"].get(status, 0))
             for status in logistics["visible_statuses"]
         )
 
         status_rows += f"""
         <tr style='{row_style}'>
-            <td>{_safe_text(manager["manager"])}</td>
-            <td style='{order_style}'>{int(manager["orders"])}</td>
-            <td>{int(manager["units"])}</td>
+            <td style='position:sticky;left:0;background:inherit;z-index:2;'>
+                {_safe_text(manager["manager"])}
+            </td>
+            <td style='position:sticky;left:170px;background:inherit;z-index:2;{order_style}'>
+                {int(manager["orders"])}
+            </td>
+            <td style='position:sticky;left:260px;background:inherit;z-index:2;font-weight:800;'>
+                {int(manager["units"])}
+            </td>
             {cells}
         </tr>
         """
 
     total_status_cells = "".join(
-        f"<td>{int(logistics['totals_by_status'].get(status, 0))}</td>"
+        f"<td style='font-weight:900;'>{int(logistics['totals_by_status'].get(status, 0))}</td>"
         for status in logistics["visible_statuses"]
     )
 
     totals_row = f"""
-    <tr style='font-weight:900;background:#eef2ff;'>
-        <td>ИТОГО</td>
-        <td>{int(logistics['orders_work'])}</td>
-        <td>{int(logistics['units_work'])}</td>
+    <tr style='font-weight:900;background:#ecebff;color:#312e81;'>
+        <td style='position:sticky;left:0;background:#ecebff;z-index:2;'>ИТОГО</td>
+        <td style='position:sticky;left:170px;background:#ecebff;z-index:2;'>
+            {int(logistics['orders_work'])}
+        </td>
+        <td style='position:sticky;left:260px;background:#ecebff;z-index:2;'>
+            {int(logistics['units_work'])}
+        </td>
         {total_status_cells}
     </tr>
     """
@@ -266,58 +287,117 @@ def render_logistics(logistics):
     return f"""
     <div class='page' id='page-logistics'>
         <section class='section'>
-            <h2>🚢 Логистика</h2>
 
-            <div class='grid kpi'>
-                <div class='card'>
-                    <div class='label'>Заказы в работе</div>
-                    <div class='num blue'>
-                        {logistics['orders_work']}
-                    </div>
+            <div style='
+                background:rgba(255,255,255,.58);
+                border:1px solid rgba(255,255,255,.7);
+                border-radius:26px;
+                padding:20px;
+                box-shadow:0 14px 40px rgba(42,56,100,.08);
+                margin-bottom:22px;
+            '>
+                <div style='
+                    font-size:18px;
+                    font-weight:900;
+                    margin-bottom:16px;
+                    color:#172033;
+                '>
+                    Общие показатели
                 </div>
 
-                <div class='card'>
-                    <div class='label'>Грузовых единиц</div>
-                    <div class='num violet'>
-                        {logistics['units_work']}
+                <div class='grid kpi'>
+                    <div class='card'>
+                        <div class='label'>Заказы в работе</div>
+                        <div class='num blue'>
+                            {logistics['orders_work']}
+                        </div>
                     </div>
-                </div>
 
-                <div class='card'>
-                    <div class='label'>Доставлено за месяц</div>
-                    <div class='num pink'>
-                        {logistics['delivered_orders']}
-                        |
-                        {logistics['delivered_units']}
+                    <div class='card'>
+                        <div class='label'>Грузовых единиц</div>
+                        <div class='num violet'>
+                            {logistics['units_work']}
+                        </div>
                     </div>
-                    <div class='note'>заказы | гр. ед.</div>
-                </div>
 
-                <div class='card'>
-                    <div class='label'>Ожидают выхода по ЖД</div>
-                    <div class='num red'>
-                        {logistics['rail_wait_orders']}
-                        |
-                        {logistics['rail_wait_units']}
+                    <div class='card'>
+                        <div class='label'>Доставлено за месяц</div>
+                        <div class='num pink'>
+                            {logistics['delivered_orders']}
+                            |
+                            {logistics['delivered_units']}
+                        </div>
+                        <div class='note'>заказы | гр. ед.</div>
                     </div>
-                    <div class='note'>заказы | гр. ед.</div>
+
+                    <div class='card'>
+                        <div class='label'>Ожидают выхода по ЖД</div>
+                        <div class='num red'>
+                            {logistics['rail_wait_orders']}
+                            |
+                            {logistics['rail_wait_units']}
+                        </div>
+                        <div class='note'>заказы | гр. ед.</div>
+                    </div>
                 </div>
             </div>
 
-            <div class='grid kpi section'>
-                {manager_cards}
+            <div style='
+                background:rgba(255,255,255,.58);
+                border:1px solid rgba(255,255,255,.7);
+                border-radius:26px;
+                padding:20px;
+                box-shadow:0 14px 40px rgba(42,56,100,.08);
+                margin-bottom:22px;
+            '>
+                <div style='
+                    font-size:18px;
+                    font-weight:900;
+                    margin-bottom:16px;
+                    color:#172033;
+                '>
+                    Нагрузка по логистам
+                </div>
+
+                <div class='grid kpi'>
+                    {manager_cards}
+                </div>
             </div>
 
-            <div class='card section'>
-                <h2>Заказы по логистам и статусам</h2>
+            <div style='
+                background:rgba(255,255,255,.58);
+                border:1px solid rgba(255,255,255,.7);
+                border-radius:26px;
+                padding:20px;
+                box-shadow:0 14px 40px rgba(42,56,100,.08);
+            '>
+                <div style='
+                    font-size:18px;
+                    font-weight:900;
+                    margin-bottom:16px;
+                    color:#172033;
+                '>
+                    Распределение заказов по статусам
+                </div>
 
-                <div style='overflow-x:auto;'>
-                    <table>
+                <div style='
+                    overflow-x:auto;
+                    border-radius:18px;
+                    background:#fff;
+                    border:1px solid #e9ecf5;
+                '>
+                    <table style='min-width:1100px;'>
                         <thead>
                             <tr>
-                                <th>Логист</th>
-                                <th>Заказов</th>
-                                <th>Гр. ед.</th>
+                                <th style='position:sticky;left:0;background:#f8fafc;z-index:3;min-width:170px;'>
+                                    Логист
+                                </th>
+                                <th style='position:sticky;left:170px;background:#f8fafc;z-index:3;min-width:90px;'>
+                                    Заказов
+                                </th>
+                                <th style='position:sticky;left:260px;background:#f8fafc;z-index:3;min-width:90px;'>
+                                    Гр. ед.
+                                </th>
                                 {status_header}
                             </tr>
                         </thead>
@@ -328,6 +408,7 @@ def render_logistics(logistics):
                     </table>
                 </div>
             </div>
+
         </section>
     </div>
     """
