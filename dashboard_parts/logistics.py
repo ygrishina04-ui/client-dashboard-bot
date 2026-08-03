@@ -3,30 +3,30 @@ import html
 import pandas as pd
 
 
-# В разделе логистики показываем только этих двух логистов.
 LOGISTICS_MANAGERS = [
-    "Осипов Евгений",
     "Дмитрий Шеховцов",
+    "Осипов Евгений",
+    "Вероника Павлова",
+    "Чекалов Феликс",
 ]
 
-# Заказы считаются находящимися в работе только в этих статусах.
 WORK_STATUSES = [
-    "Авто прямое",
-    "Автовывоз",
+    "Новый",
     "Букинг",
-    "В Работе",
-    "В работе",
+    "Море",
+    "Порт",
+    "Размещение",
     "До границы",
+    "После границы",
     "ЖД",
     "ЖД прямое",
-    "Море",
-    "Новый",
     "Ожидание выхода по ЖД",
-    "ПТД",
-    "Порт",
-    "После границы",
-    "Размещение",
+    "Авто прямое",
+    "Автовывоз",
     "Авиа",
+    "ПТД",
+    "В Работе",
+    "В работе",
 ]
 
 OVERLOAD_LIMIT = 100
@@ -88,17 +88,11 @@ def build_logistics_data(path, today):
     df["_units"] = _num(df[units_col])
     df["_arrival"] = pd.to_datetime(df[arrival_col], errors="coerce")
 
-    # Только Евгений и Дмитрий + только согласованные активные статусы.
     work = df[
         df[manager_col].isin(LOGISTICS_MANAGERS)
         & df[status_col].isin(WORK_STATUSES)
     ].copy()
 
-    # Общие показатели по двум логистам.
-    orders_work = int(work[order_col].replace("", pd.NA).nunique())
-    units_work = int(work["_units"].sum())
-
-    # Сводка по каждому логисту.
     managers_data = []
 
     for manager in LOGISTICS_MANAGERS:
@@ -125,8 +119,6 @@ def build_logistics_data(path, today):
             "statuses": status_counts,
         })
 
-    # Показываем только те статусы, где есть хотя бы один заказ
-    # у Евгения или Дмитрия.
     visible_statuses = [
         status
         for status in WORK_STATUSES
@@ -149,9 +141,19 @@ def build_logistics_data(path, today):
         work[status_col] == "Ожидание выхода по ЖД"
     ].copy()
 
+    totals_by_status = {
+        status: sum(
+            manager["statuses"].get(status, 0)
+            for manager in managers_data
+        )
+        for status in visible_statuses
+    }
+
     return {
-        "orders_work": orders_work,
-        "units_work": units_work,
+        "orders_work": int(
+            work[order_col].replace("", pd.NA).nunique()
+        ),
+        "units_work": int(work["_units"].sum()),
         "delivered_orders": int(
             delivered[order_col].replace("", pd.NA).nunique()
         ),
@@ -162,7 +164,7 @@ def build_logistics_data(path, today):
         "rail_wait_units": int(rail_wait["_units"].sum()),
         "managers": managers_data,
         "visible_statuses": visible_statuses,
-        "overload_limit": OVERLOAD_LIMIT,
+        "totals_by_status": totals_by_status,
     }
 
 
@@ -177,19 +179,7 @@ def _manager_card(manager_data: dict) -> str:
         else ""
     )
 
-    number_style = (
-        "color:#dc2626;"
-        if overloaded
-        else ""
-    )
-
-    warning = (
-        "<div style='margin-top:8px;color:#b91c1c;font-weight:800;'>"
-        "⚠ Нагрузка выше 100 заказов"
-        "</div>"
-        if overloaded
-        else ""
-    )
+    number_style = "color:#dc2626;" if overloaded else ""
 
     return f"""
     <div class='card' style='{card_style}'>
@@ -200,7 +190,6 @@ def _manager_card(manager_data: dict) -> str:
         <div class='note'>
             заказов в работе · {int(manager_data["units"])} гр. ед.
         </div>
-        {warning}
     </div>
     """
 
@@ -260,14 +249,19 @@ def render_logistics(logistics):
         </tr>
         """
 
-    empty_status_note = ""
+    total_status_cells = "".join(
+        f"<td>{int(logistics['totals_by_status'].get(status, 0))}</td>"
+        for status in logistics["visible_statuses"]
+    )
 
-    if not logistics["visible_statuses"]:
-        empty_status_note = (
-            "<div class='note' style='margin-top:12px;'>"
-            "В выбранных статусах пока нет заказов."
-            "</div>"
-        )
+    totals_row = f"""
+    <tr style='font-weight:900;background:#eef2ff;'>
+        <td>ИТОГО</td>
+        <td>{int(logistics['orders_work'])}</td>
+        <td>{int(logistics['units_work'])}</td>
+        {total_status_cells}
+    </tr>
+    """
 
     return f"""
     <div class='page' id='page-logistics'>
@@ -280,7 +274,6 @@ def render_logistics(logistics):
                     <div class='num blue'>
                         {logistics['orders_work']}
                     </div>
-                    <div class='note'>Евгений + Дмитрий</div>
                 </div>
 
                 <div class='card'>
@@ -288,7 +281,6 @@ def render_logistics(logistics):
                     <div class='num violet'>
                         {logistics['units_work']}
                     </div>
-                    <div class='note'>по заказам в работе</div>
                 </div>
 
                 <div class='card'>
@@ -312,35 +304,29 @@ def render_logistics(logistics):
                 </div>
             </div>
 
-            <div class='grid two section'>
+            <div class='grid kpi section'>
                 {manager_cards}
             </div>
 
             <div class='card section'>
                 <h2>Заказы по логистам и статусам</h2>
-                <div class='note' style='margin-bottom:12px;'>
-                    Красная подсветка появляется,
-                    если у логиста больше
-                    {logistics['overload_limit']} заказов в работе.
-                </div>
 
                 <div style='overflow-x:auto;'>
                     <table>
                         <thead>
                             <tr>
                                 <th>Логист</th>
-                                <th>Итого заказов</th>
-                                <th>Грузовых единиц</th>
+                                <th>Заказов</th>
+                                <th>Гр. ед.</th>
                                 {status_header}
                             </tr>
                         </thead>
                         <tbody>
                             {status_rows}
+                            {totals_row}
                         </tbody>
                     </table>
                 </div>
-
-                {empty_status_note}
             </div>
         </section>
     </div>
