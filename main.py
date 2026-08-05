@@ -320,7 +320,7 @@ async def rebuild_from_storage():
         portfolio_path=paths["portfolio"],
         output_path=str(OUTPUT),
         snoozed_clients=snoozed_clients,
-        logistics_path=paths.get("logistics")
+        logistics_path=paths["orders"]
     )
 
     print("Дашборд восстановлен из Google Sheets FILES", flush=True)
@@ -343,7 +343,7 @@ def build_from_user_files(uid: int):
         portfolio_path=files["portfolio"],
         output_path=str(OUTPUT),
         snoozed_clients=snoozed_clients,
-        logistics_path=files.get("logistics")
+        logistics_path=files["orders"]
     )
 
 
@@ -444,27 +444,6 @@ async def doc(message: Message):
     except Exception:
         print("Не удалось сохранить file_id в Google Sheets:", flush=True)
         traceback.print_exc()
-
-    if kind == "logistics":
-        try:
-            ok = await rebuild_from_storage()
-
-            if ok:
-                await message.answer(
-                    "Файл <b>логистика</b> принят. Раздел логистики обновлен ✅",
-                    reply_markup=dashboard_keyboard()
-                )
-            else:
-                await message.answer(
-                    "Файл <b>логистика</b> принят. Для полной сборки дашборда нужны еще: "
-                    "заказы, запросы, портфель."
-                )
-
-        except Exception as e:
-            traceback.print_exc()
-            await message.answer(f"Не удалось обновить логистику: <code>{e}</code>")
-
-        return
 
     missing = [v for k, v in REQUIRED_CLIENT.items() if k not in files]
 
