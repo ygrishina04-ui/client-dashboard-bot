@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import traceback
+import requests
 from datetime import datetime
 from pathlib import Path
 
@@ -27,6 +28,7 @@ PORT = int(os.getenv("PORT", "10000"))
 
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
+BITRIX_WEBHOOK_URL = os.getenv("BITRIX_WEBHOOK_URL", "").rstrip("/")
 
 BASE = Path(__file__).resolve().parent
 UPLOADS = BASE / "uploads"
@@ -310,6 +312,29 @@ async def rebuild_from_storage():
     print("Дашборд восстановлен из Google Sheets FILES", flush=True)
     return True
 
+def call_bitrix(method: str, params: dict | None = None):
+    if not BITRIX_WEBHOOK_URL:
+        raise RuntimeError("Не задан BITRIX_WEBHOOK_URL")
+
+    url = f"{BITRIX_WEBHOOK_URL}/{method}.json"
+
+    response = requests.post(
+        url,
+        json=params or {},
+        timeout=30
+    )
+
+    response.raise_for_status()
+
+    data = response.json()
+
+    if "error" in data:
+        raise RuntimeError(
+            f"{data.get('error')}: "
+            f"{data.get('error_description', '')}"
+        )
+
+    return data
 
 # =====================
 # TELEGRAM HANDLERS
@@ -379,6 +404,56 @@ async def chatid(message: Message):
         f"Type: <code>{message.chat.type}</code>"
     )
 
+@dp.message(Command("bitrix_test"))
+async def bitrix_test(message: Message):
+    await message.answer("Проверяю подключение к Bitrix24...")
+
+    try:
+        data = call_bitrix(
+            "crm.item.list",
+            {
+                "entityTypeId": 4,
+                "select": [
+                    "id",
+                    "title"
+                ],
+                "order": {
+                    "id": "DESC"
+                }
+            }
+        )
+
+        companies = (
+            data
+            .get("result", {})
+            .get("items", [])
+        )
+
+        if not companies:
+            await message.answer(
+                "Bitrix24 ответил, но компании не найдены."
+            )
+            return
+
+        lines = ["✅ Bitrix24 подключен.\n"]
+
+        for company in companies[:10]:
+            company_id = company.get("id", "")
+            title = company.get("title", "Без названия")
+
+            lines.append(
+                f"<b>{company_id}</b> — {title}"
+            )
+
+        await message.answer("\n".join(lines))
+
+    except Exception as e:
+        traceback.print_exc()
+
+        await message.answer(
+            "❌ Не удалось получить данные из Bitrix24:\n"
+            f"<code>{e}</code>"
+        )
 
 @dp.message(F.document)
 async def doc(message: Message):
