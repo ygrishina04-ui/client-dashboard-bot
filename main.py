@@ -463,6 +463,92 @@ async def bitrix_test(message: Message):
             f"<code>{e}</code>"
         )
 
+@dp.message(Command("bitrix_company"))
+async def bitrix_company(message: Message):
+    query = (
+        message.text
+        .replace("/bitrix_company", "", 1)
+        .strip()
+    )
+
+    if not query:
+        await message.answer(
+            "Напиши название клиента после команды.\n\n"
+            "Например:\n"
+            "<code>/bitrix_company Ромашка</code>"
+        )
+        return
+
+    try:
+        data = call_bitrix(
+            "crm.item.list",
+            {
+                "entityTypeId": 4,
+                "filter": {
+                    "%title": query
+                },
+                "select": ["*"],
+            }
+        )
+
+        companies = (
+            data
+            .get("result", {})
+            .get("items", [])
+        )
+
+        if not companies:
+            await message.answer(
+                f"Компания по запросу <b>{query}</b> не найдена."
+            )
+            return
+
+        company = companies[0]
+
+        lines = [
+            "✅ <b>Компания найдена</b>",
+            "",
+            f"<b>ID:</b> <code>{company.get('id', '')}</code>",
+            f"<b>Название:</b> {company.get('title', '')}",
+            ""
+        ]
+
+        # Ищем поле, где встречается значение "Продажа"
+        sale_fields = []
+
+        for key, value in company.items():
+            if value is None:
+                continue
+
+            value_text = str(value).strip()
+
+            if "продажа" in value_text.lower():
+                sale_fields.append(
+                    f"<code>{key}</code> = <b>{value_text}</b>"
+                )
+
+        if sale_fields:
+            lines.append(
+                "🔎 <b>Поля со значением «Продажа»:</b>"
+            )
+            lines.extend(sale_fields)
+        else:
+            lines.append(
+                "⚠️ Значение «Продажа» в полях компании не найдено."
+            )
+
+        await message.answer(
+            "\n".join(lines)[:4000]
+        )
+
+    except Exception as e:
+        traceback.print_exc()
+
+        await message.answer(
+            "❌ Ошибка Bitrix:\n"
+            f"<code>{e}</code>"
+        )
+
 @dp.message(F.document)
 async def doc(message: Message):
     uid = message.from_user.id
