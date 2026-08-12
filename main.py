@@ -2,7 +2,6 @@ import os
 import json
 import asyncio
 import traceback
-import requests
 from datetime import datetime
 from pathlib import Path
 
@@ -28,13 +27,14 @@ PORT = int(os.getenv("PORT", "10000"))
 
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
-BITRIX_WEBHOOK_URL = os.getenv("BITRIX_WEBHOOK_URL", "").rstrip("/")
 
 BASE = Path(__file__).resolve().parent
 UPLOADS = BASE / "uploads"
 UPLOADS.mkdir(exist_ok=True)
+
 OUTPUT_DIR = BASE / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
+
 OUTPUT = OUTPUT_DIR / "dashboard.html"
 
 bot = Bot(TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -42,13 +42,11 @@ dp = Dispatcher()
 
 user_files = {}
 
-REQUIRED_CLIENT = {
+REQUIRED_FILES = {
     "orders": "заказы",
     "requests": "запросы",
     "portfolio": "портфель",
 }
-
-ALL_FILE_KINDS = REQUIRED_CLIENT.copy()
 
 
 def detect_kind(filename: str, caption: str = ""):
@@ -72,28 +70,19 @@ def detect_kind(filename: str, caption: str = ""):
 
 
 def dashboard_keyboard():
-    buttons = []
+    if not PUBLIC_DASHBOARD_URL:
+        return None
 
-    if PUBLIC_DASHBOARD_URL:
-        buttons.append([
-            InlineKeyboardButton(
-                text="Открыть дашборд",
-                url=PUBLIC_DASHBOARD_URL
-            )
-        ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Открыть дашборд", url=PUBLIC_DASHBOARD_URL)]
+        ]
+    )
 
-    return InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
-
-
-# =====================
-# GOOGLE SHEETS STORAGE
-# =====================
 
 def get_storage_sheet():
     if not GOOGLE_CREDENTIALS_JSON or not GOOGLE_SHEET_ID:
-        raise RuntimeError(
-            "Не заданы GOOGLE_CREDENTIALS_JSON или GOOGLE_SHEET_ID"
-        )
+        raise RuntimeError("Не заданы GOOGLE_CREDENTIALS_JSON или GOOGLE_SHEET_ID")
 
     info = json.loads(GOOGLE_CREDENTIALS_JSON)
 
@@ -118,6 +107,7 @@ def get_or_create_worksheet(spreadsheet, title, headers):
         )
 
     values = ws.get_all_values()
+
     if not values:
         ws.append_row(headers)
 
@@ -126,6 +116,7 @@ def get_or_create_worksheet(spreadsheet, title, headers):
 
 def save_uploaded_file_to_storage(kind, file_id, filename):
     spreadsheet = get_storage_sheet()
+
     ws = get_or_create_worksheet(
         spreadsheet,
         "FILES",
@@ -134,6 +125,7 @@ def save_uploaded_file_to_storage(kind, file_id, filename):
 
     rows = ws.get_all_records()
     now = datetime.now().strftime("%d.%m.%Y %H:%M")
+
     row_index = None
 
     for i, row in enumerate(rows, start=2):
@@ -152,6 +144,7 @@ def save_uploaded_file_to_storage(kind, file_id, filename):
 def load_saved_files():
     try:
         spreadsheet = get_storage_sheet()
+
         ws = get_or_create_worksheet(
             spreadsheet,
             "FILES",
@@ -165,7 +158,7 @@ def load_saved_files():
             file_id = str(row.get("file_id", "")).strip()
             filename = str(row.get("filename", "")).strip()
 
-            if kind in REQUIRED_CLIENT and file_id:
+            if kind in REQUIRED_FILES and file_id:
                 result[kind] = {
                     "file_id": file_id,
                     "filename": filename or f"{kind}.xlsx",
@@ -180,6 +173,7 @@ def load_saved_files():
 
 def save_snooze_to_storage(client, manager, until, reason=""):
     spreadsheet = get_storage_sheet()
+
     ws = get_or_create_worksheet(
         spreadsheet,
         "SNOOZE",
@@ -187,16 +181,19 @@ def save_snooze_to_storage(client, manager, until, reason=""):
     )
 
     raw = ws.get_all_values()
+
     if not raw:
         ws.append_row(["client", "manager", "until", "reason", "created_at"])
         raw = ws.get_all_values()
 
     headers = [h.strip().lower() for h in raw[0]]
     now = datetime.now().strftime("%d.%m.%Y %H:%M")
+
     row_index = None
 
     for i, row_values in enumerate(raw[1:], start=2):
         row = dict(zip(headers, row_values))
+
         if str(row.get("client", "")).strip() == client:
             row_index = i
             break
@@ -212,6 +209,7 @@ def save_snooze_to_storage(client, manager, until, reason=""):
 def load_snoozed_clients():
     try:
         spreadsheet = get_storage_sheet()
+
         ws = get_or_create_worksheet(
             spreadsheet,
             "SNOOZE",
@@ -229,6 +227,7 @@ def load_snoozed_clients():
 
         for row_values in raw[1:]:
             row = dict(zip(headers, row_values))
+
             client = str(row.get("client", "")).strip()
             if not client:
                 continue
@@ -247,10 +246,6 @@ def load_snoozed_clients():
         traceback.print_exc()
         return {}
 
-
-# =====================
-# DASHBOARD BUILD
-# =====================
 
 async def download_telegram_file(file_id: str, destination: Path):
     tg_file = await bot.get_file(file_id)
@@ -271,93 +266,65 @@ def build_from_user_files(uid: int):
         order_path=files["orders"],
         requests_path=files["requests"],
         portfolio_path=files["portfolio"],
+        logistics_path=files["orders"],
         output_path=str(OUTPUT),
         snoozed_clients=snoozed_clients,
-        logistics_path=files["orders"]
     )
+
+    print(f"DASHBOARD SAVED TO: {OUTPUT}", flush=True)
 
 
 async def rebuild_from_storage():
     saved = load_saved_files()
 
-    missing = [kind for kind in REQUIRED_CLIENT if kind not in saved]
+    missing = [kind for kind in REQUIRED_FILES if kind not in saved]
+
     if missing:
         print(f"REBUILD: не хватает файлов {missing}", flush=True)
         return False
 
     paths = {}
 
-    for kind in REQUIRED_CLIENT:
+    for kind in REQUIRED_FILES:
         info = saved[kind]
-        filename = info.get("filename") or f"{kind}.xlsx"
-        file_id = info.get("file_id")
-        safe_filename = Path(filename).name
+
+        safe_filename = Path(
+            info.get("filename") or f"{kind}.xlsx"
+        ).name
+
         path = UPLOADS / f"saved_{kind}_{safe_filename}"
 
-        await download_telegram_file(file_id, path)
+        await download_telegram_file(info["file_id"], path)
         paths[kind] = str(path)
 
     snoozed_clients = load_snoozed_clients()
+
     print(f"SNOOZE LOADED: {len(snoozed_clients)}", flush=True)
 
     build_dashboard(
         order_path=paths["orders"],
         requests_path=paths["requests"],
         portfolio_path=paths["portfolio"],
+        logistics_path=paths["orders"],
         output_path=str(OUTPUT),
         snoozed_clients=snoozed_clients,
-        logistics_path=paths["orders"]
     )
 
-    print("Дашборд восстановлен из Google Sheets FILES", flush=True)
+    print(f"Дашборд восстановлен. OUTPUT={OUTPUT}", flush=True)
     return True
 
-def call_bitrix(method: str, params: dict | None = None):
-    if not BITRIX_WEBHOOK_URL:
-        raise RuntimeError("Не задан BITRIX_WEBHOOK_URL")
-
-    base_url = BITRIX_WEBHOOK_URL.rstrip("/")
-    url = f"{base_url}/{method}"
-
-    print(f"BITRIX METHOD: {method}", flush=True)
-
-    response = requests.post(
-        url,
-        json=params or {},
-        timeout=30
-    )
-
-    print(
-        f"BITRIX STATUS: {response.status_code}",
-        flush=True
-    )
-
-    response.raise_for_status()
-
-    data = response.json()
-
-    if "error" in data:
-        raise RuntimeError(
-            f"{data.get('error')}: "
-            f"{data.get('error_description', '')}"
-        )
-
-    return data
-
-# =====================
-# TELEGRAM HANDLERS
-# =====================
 
 @dp.message(CommandStart())
 async def start(message: Message):
     user_files[message.from_user.id] = {}
 
     await message.answer(
-        "Пришлите 3 Excel-файла: <b>заказы</b>, <b>запросы</b> и "
-        "<b>клиентский портфель</b>. Можно отправлять по одному файлу.\n\n"
-        "Раздел <b>Логистика</b> автоматически строится из файла <b>заказы</b>.\n\n"
-        "Если бот не поймет тип файла, отправьте его с подписью: "
-        "<b>заказы</b>, <b>запросы</b> или <b>портфель</b>."
+        "Пришлите 3 Excel-файла:\n"
+        "1. <b>заказы</b>\n"
+        "2. <b>запросы</b>\n"
+        "3. <b>портфель</b>\n\n"
+        "Раздел <b>Логистика</b> автоматически строится "
+        "из файла <b>заказы</b>."
     )
 
 
@@ -370,7 +337,8 @@ async def dashboard(message: Message):
         )
     else:
         await message.answer(
-            "Дашборд еще не создан. Пришлите 3 Excel-файла или выполните /rebuild."
+            "Дашборд еще не создан. "
+            "Пришлите 3 Excel-файла или выполните /rebuild."
         )
 
 
@@ -388,8 +356,8 @@ async def rebuild(message: Message):
             )
         else:
             await message.answer(
-                "Не удалось восстановить дашборд. В Google Sheets должны быть сохранены "
-                "файлы: заказы, запросы и портфель."
+                "Не удалось восстановить дашборд. "
+                "Нужны сохраненные файлы: заказы, запросы, портфель."
             )
 
     except Exception as e:
@@ -401,7 +369,7 @@ async def rebuild(message: Message):
 async def reset(message: Message):
     user_files[message.from_user.id] = {}
     await message.answer(
-        "Файлы текущей загрузки сброшены. Пришлите заново 3 Excel-файла."
+        "Текущая загрузка сброшена. Пришлите заново 3 файла."
     )
 
 
@@ -412,273 +380,6 @@ async def chatid(message: Message):
         f"Type: <code>{message.chat.type}</code>"
     )
 
-@dp.message(Command("bitrix_test"))
-async def bitrix_test(message: Message):
-    await message.answer("Проверяю подключение к Bitrix24...")
-
-    try:
-        data = call_bitrix(
-            "crm.item.list",
-            {
-                "entityTypeId": 4,
-                "select": [
-                    "id",
-                    "title"
-                ],
-                "order": {
-                    "id": "DESC"
-                }
-            }
-        )
-
-        companies = (
-            data
-            .get("result", {})
-            .get("items", [])
-        )
-
-        if not companies:
-            await message.answer(
-                "Bitrix24 ответил, но компании не найдены."
-            )
-            return
-
-        lines = ["✅ Bitrix24 подключен.\n"]
-
-        for company in companies[:10]:
-            company_id = company.get("id", "")
-            title = company.get("title", "Без названия")
-
-            lines.append(
-                f"<b>{company_id}</b> — {title}"
-            )
-
-        await message.answer("\n".join(lines))
-
-    except Exception as e:
-        traceback.print_exc()
-
-        await message.answer(
-            "❌ Не удалось получить данные из Bitrix24:\n"
-            f"<code>{e}</code>"
-        )
-
-@dp.message(Command("bitrix_company"))
-async def bitrix_company(message: Message):
-    query = (
-        message.text
-        .replace("/bitrix_company", "", 1)
-        .strip()
-    )
-
-    if not query:
-        await message.answer(
-            "Напиши название клиента после команды.\n\n"
-            "Например:\n"
-            "<code>/bitrix_company Ромашка</code>"
-        )
-        return
-
-    try:
-        data = call_bitrix(
-            "crm.item.list",
-            {
-                "entityTypeId": 4,
-                "filter": {
-                    "%title": query
-                },
-                "select": ["*"],
-            }
-        )
-
-        companies = (
-            data
-            .get("result", {})
-            .get("items", [])
-        )
-
-        if not companies:
-            await message.answer(
-                f"Компания по запросу <b>{query}</b> не найдена."
-            )
-            return
-
-        company = companies[0]
-
-        lines = [
-            "✅ <b>Компания найдена</b>",
-            "",
-            f"<b>ID:</b> <code>{company.get('id', '')}</code>",
-            f"<b>Название:</b> {company.get('title', '')}",
-            ""
-        ]
-
-        # Ищем поле, где встречается значение "Продажа"
-        sale_fields = []
-
-        for key, value in company.items():
-            if value is None:
-                continue
-
-            value_text = str(value).strip()
-
-            if "продажа" in value_text.lower():
-                sale_fields.append(
-                    f"<code>{key}</code> = <b>{value_text}</b>"
-                )
-
-        if sale_fields:
-            lines.append(
-                "🔎 <b>Поля со значением «Продажа»:</b>"
-            )
-            lines.extend(sale_fields)
-        else:
-            lines.append(
-                "⚠️ Значение «Продажа» в полях компании не найдено."
-            )
-
-        await message.answer(
-            "\n".join(lines)[:4000]
-        )
-
-    except Exception as e:
-        traceback.print_exc()
-
-        await message.answer(
-            "❌ Ошибка Bitrix:\n"
-            f"<code>{e}</code>"
-        )
-
-@dp.message(Command("bitrix_deals"))
-async def bitrix_deals(message: Message):
-    query = (
-        message.text
-        .replace("/bitrix_deals", "", 1)
-        .strip()
-    )
-
-    if not query:
-        await message.answer(
-            "Напиши ID компании после команды.\n\n"
-            "Например:\n"
-            "<code>/bitrix_deals 22805</code>"
-        )
-        return
-
-    try:
-        company_id = int(query)
-
-        data = call_bitrix(
-            "crm.item.list",
-            {
-                "entityTypeId": 2,
-                "filter": {
-                    "companyId": company_id
-                },
-                "select": [
-                    "id",
-                    "title",
-                    "companyId",
-                    "categoryId",
-                    "stageId",
-                    "assignedById",
-                    "createdTime",
-                    "updatedTime"
-                ],
-                "order": {
-                    "id": "DESC"
-                }
-            }
-        )
-
-        deals = (
-            data
-            .get("result", {})
-            .get("items", [])
-        )
-
-        if not deals:
-            await message.answer(
-                f"У компании <code>{company_id}</code> сделки не найдены."
-            )
-            return
-
-        lines = [
-            f"✅ <b>Сделки компании {company_id}</b>",
-            ""
-        ]
-
-        for deal in deals[:15]:
-            lines.append(
-                f"<b>Сделка:</b> {deal.get('title', '')}\n"
-                f"ID: <code>{deal.get('id', '')}</code>\n"
-                f"Воронка: <code>{deal.get('categoryId', '')}</code>\n"
-                f"Стадия API: <code>{deal.get('stageId', '')}</code>\n"
-            )
-
-        await message.answer(
-            "\n".join(lines)[:4000]
-        )
-
-    except Exception as e:
-        traceback.print_exc()
-
-        await message.answer(
-            "❌ Ошибка Bitrix:\n"
-            f"<code>{e}</code>"
-        )
-
-@dp.message(Command("bitrix_fields"))
-async def bitrix_fields(message: Message):
-    try:
-        data = call_bitrix(
-            "crm.company.userfield.list",
-            {
-                "filter": {
-                    "LANG": "ru"
-                },
-                "order": {
-                    "SORT": "ASC"
-                }
-            }
-        )
-
-        fields = data.get("result", [])
-
-        if not fields:
-            await message.answer(
-                "Пользовательские поля компаний не найдены."
-            )
-            return
-
-        lines = ["🔎 <b>Поля компаний Bitrix:</b>", ""]
-
-        for field in fields[:50]:
-            label = (
-                field.get("EDIT_FORM_LABEL")
-                or field.get("LIST_COLUMN_LABEL")
-                or field.get("LIST_FILTER_LABEL")
-                or ""
-            )
-
-            lines.append(
-                f"<b>{label}</b>\n"
-                f"<code>{field.get('FIELD_NAME')}</code>\n"
-                f"Тип: <code>{field.get('USER_TYPE_ID')}</code>\n"
-            )
-
-        text = "\n".join(lines)
-
-        # Telegram ограничивает размер сообщения.
-        await message.answer(text[:4000])
-
-    except Exception as e:
-        traceback.print_exc()
-
-        await message.answer(
-            "❌ Ошибка Bitrix:\n"
-            f"<code>{e}</code>"
-        )
 
 @dp.message(F.document)
 async def doc(message: Message):
@@ -690,7 +391,8 @@ async def doc(message: Message):
 
     if not kind:
         await message.answer(
-            "Не поняла тип файла. В подписи напишите: "
+            "Не поняла тип файла. "
+            "Отправь его с подписью: "
             "<b>заказы</b> / <b>запросы</b> / <b>портфель</b>."
         )
         return
@@ -699,7 +401,13 @@ async def doc(message: Message):
     path = UPLOADS / f"{uid}_{kind}_{safe_filename}"
 
     await bot.download(message.document, destination=path)
+
     files[kind] = str(path)
+
+    print(
+        f"FILE RECEIVED: kind={kind}, filename={safe_filename}",
+        flush=True
+    )
 
     try:
         save_uploaded_file_to_storage(
@@ -708,40 +416,44 @@ async def doc(message: Message):
             filename=safe_filename
         )
     except Exception:
-        print("Не удалось сохранить file_id в Google Sheets:", flush=True)
+        print(
+            "Не удалось сохранить file_id в Google Sheets:",
+            flush=True
+        )
         traceback.print_exc()
 
     missing = [
         title
-        for file_kind, title in REQUIRED_CLIENT.items()
+        for file_kind, title in REQUIRED_FILES.items()
         if file_kind not in files
     ]
 
     if missing:
         await message.answer(
-            f"Файл <b>{ALL_FILE_KINDS[kind]}</b> принят. "
+            f"Файл <b>{REQUIRED_FILES[kind]}</b> принят. "
             f"Осталось прислать: {', '.join(missing)}."
         )
         return
 
     try:
+        await message.answer(
+            "Все 3 файла получены. Собираю дашборд..."
+        )
+
         build_from_user_files(uid)
 
         await message.answer(
-            "Все 3 файла приняты. Дашборд обновлен ✅",
+            "Дашборд обновлен ✅",
             reply_markup=dashboard_keyboard()
         )
 
     except Exception as e:
         traceback.print_exc()
+
         await message.answer(
             f"Не удалось собрать дашборд: <code>{e}</code>"
         )
 
-
-# =====================
-# WEB API
-# =====================
 
 async def snooze_client(request):
     try:
@@ -774,10 +486,14 @@ async def snooze_client(request):
 
     except Exception:
         traceback.print_exc()
+
         return web.json_response(
             {
                 "ok": False,
-                "error": "Ошибка сохранения в Google Sheets. Подробности в Render Logs."
+                "error": (
+                    "Ошибка сохранения в Google Sheets. "
+                    "Подробности в Render Logs."
+                )
             },
             status=500
         )
@@ -792,7 +508,8 @@ async def dashboard_page(request):
         return web.Response(
             text=(
                 "<h1>Дашборд еще не создан</h1>"
-                "<p>Загрузите 3 Excel-файла в Telegram-бот или выполните /rebuild.</p>"
+                "<p>Загрузите 3 Excel-файла "
+                "в Telegram-бот или выполните /rebuild.</p>"
             ),
             content_type="text/html",
             charset="utf-8"
@@ -816,25 +533,28 @@ async def start_web_app():
     await site.start()
 
 
-# =====================
-# START
-# =====================
-
 async def main():
     print("WEB APP STARTING", flush=True)
+
     await start_web_app()
+
     print("WEB APP STARTED", flush=True)
 
     await bot.delete_webhook(drop_pending_updates=True)
+
     print("WEBHOOK CLEARED", flush=True)
 
     try:
         await rebuild_from_storage()
     except Exception:
-        print("Не удалось восстановить дашборд при старте:", flush=True)
+        print(
+            "Не удалось восстановить дашборд при старте:",
+            flush=True
+        )
         traceback.print_exc()
 
     print("BOT POLLING STARTING", flush=True)
+
     await dp.start_polling(bot)
 
 
