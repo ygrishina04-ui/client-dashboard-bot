@@ -316,12 +316,20 @@ def call_bitrix(method: str, params: dict | None = None):
     if not BITRIX_WEBHOOK_URL:
         raise RuntimeError("Не задан BITRIX_WEBHOOK_URL")
 
-    url = f"{BITRIX_WEBHOOK_URL}/{method}.json"
+    base_url = BITRIX_WEBHOOK_URL.rstrip("/")
+    url = f"{base_url}/{method}"
+
+    print(f"BITRIX METHOD: {method}", flush=True)
 
     response = requests.post(
         url,
         json=params or {},
         timeout=30
+    )
+
+    print(
+        f"BITRIX STATUS: {response.status_code}",
+        flush=True
     )
 
     response.raise_for_status()
