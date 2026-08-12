@@ -628,6 +628,58 @@ async def bitrix_deals(message: Message):
             f"<code>{e}</code>"
         )
 
+@dp.message(Command("bitrix_fields"))
+async def bitrix_fields(message: Message):
+    try:
+        data = call_bitrix(
+            "crm.company.userfield.list",
+            {
+                "filter": {
+                    "LANG": "ru"
+                },
+                "order": {
+                    "SORT": "ASC"
+                }
+            }
+        )
+
+        fields = data.get("result", [])
+
+        if not fields:
+            await message.answer(
+                "Пользовательские поля компаний не найдены."
+            )
+            return
+
+        lines = ["🔎 <b>Поля компаний Bitrix:</b>", ""]
+
+        for field in fields[:50]:
+            label = (
+                field.get("EDIT_FORM_LABEL")
+                or field.get("LIST_COLUMN_LABEL")
+                or field.get("LIST_FILTER_LABEL")
+                or ""
+            )
+
+            lines.append(
+                f"<b>{label}</b>\n"
+                f"<code>{field.get('FIELD_NAME')}</code>\n"
+                f"Тип: <code>{field.get('USER_TYPE_ID')}</code>\n"
+            )
+
+        text = "\n".join(lines)
+
+        # Telegram ограничивает размер сообщения.
+        await message.answer(text[:4000])
+
+    except Exception as e:
+        traceback.print_exc()
+
+        await message.answer(
+            "❌ Ошибка Bitrix:\n"
+            f"<code>{e}</code>"
+        )
+
 @dp.message(F.document)
 async def doc(message: Message):
     uid = message.from_user.id
