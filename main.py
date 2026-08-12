@@ -549,6 +549,85 @@ async def bitrix_company(message: Message):
             f"<code>{e}</code>"
         )
 
+@dp.message(Command("bitrix_deals"))
+async def bitrix_deals(message: Message):
+    query = (
+        message.text
+        .replace("/bitrix_deals", "", 1)
+        .strip()
+    )
+
+    if not query:
+        await message.answer(
+            "Напиши ID компании после команды.\n\n"
+            "Например:\n"
+            "<code>/bitrix_deals 22805</code>"
+        )
+        return
+
+    try:
+        company_id = int(query)
+
+        data = call_bitrix(
+            "crm.item.list",
+            {
+                "entityTypeId": 2,
+                "filter": {
+                    "companyId": company_id
+                },
+                "select": [
+                    "id",
+                    "title",
+                    "companyId",
+                    "categoryId",
+                    "stageId",
+                    "assignedById",
+                    "createdTime",
+                    "updatedTime"
+                ],
+                "order": {
+                    "id": "DESC"
+                }
+            }
+        )
+
+        deals = (
+            data
+            .get("result", {})
+            .get("items", [])
+        )
+
+        if not deals:
+            await message.answer(
+                f"У компании <code>{company_id}</code> сделки не найдены."
+            )
+            return
+
+        lines = [
+            f"✅ <b>Сделки компании {company_id}</b>",
+            ""
+        ]
+
+        for deal in deals[:15]:
+            lines.append(
+                f"<b>Сделка:</b> {deal.get('title', '')}\n"
+                f"ID: <code>{deal.get('id', '')}</code>\n"
+                f"Воронка: <code>{deal.get('categoryId', '')}</code>\n"
+                f"Стадия API: <code>{deal.get('stageId', '')}</code>\n"
+            )
+
+        await message.answer(
+            "\n".join(lines)[:4000]
+        )
+
+    except Exception as e:
+        traceback.print_exc()
+
+        await message.answer(
+            "❌ Ошибка Bitrix:\n"
+            f"<code>{e}</code>"
+        )
+
 @dp.message(F.document)
 async def doc(message: Message):
     uid = message.from_user.id
