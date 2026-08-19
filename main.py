@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
+from aiohttp import web
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ParseMode
@@ -36,6 +37,7 @@ GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "").strip()
 TIMEZONE = os.getenv("TIMEZONE", "Asia/Vladivostok").strip()
 DAILY_SEND_TIME = os.getenv("DAILY_SEND_TIME", "10:30").strip()
 REPORT_CHAT_ID = os.getenv("REPORT_CHAT_ID", "").strip()
+PORT = int(os.getenv("PORT", "10000"))
 
 CLIENTS_PER_DAY = int(os.getenv("CLIENTS_PER_DAY", "3"))
 
@@ -1816,6 +1818,35 @@ async def daily_loop():
 
 
 # =========================================================
+# RENDER WEB SERVER
+# =========================================================
+
+async def health(request):
+    return web.Response(text="OK")
+
+
+async def start_web_app():
+    app = web.Application()
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    site = web.TCPSite(
+        runner,
+        "0.0.0.0",
+        PORT,
+    )
+    await site.start()
+
+    print(
+        f"WEB APP STARTED ON PORT {PORT}",
+        flush=True,
+    )
+
+
+# =========================================================
 # START
 # =========================================================
 
@@ -1833,6 +1864,8 @@ async def main():
         ),
         flush=True,
     )
+
+    await start_web_app()
 
     asyncio.create_task(
         daily_loop()
