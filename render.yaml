@@ -1,10 +1,9 @@
 services:
-  - type: web
-    name: client-dashboard-bot
-    env: python
-    plan: free
-    buildCommand: python3 -m pip install -r requirements.txt
-    startCommand: python3 -m pip install -r requirements.txt && python3 main.py
+  - type: worker
+    name: client-communication-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.7
