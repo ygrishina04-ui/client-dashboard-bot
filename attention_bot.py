@@ -596,8 +596,6 @@ def sync_portfolio_from_excel(path):
         df,
         [
             "Оперативный менеджер",
-            "Опер. менеджер",
-            "Опер менеджер",
         ],
     )
 
@@ -1239,6 +1237,65 @@ def get_today_tasks(
     return result
 
 
+def count_eligible_clients_for_manager(manager):
+    today = today_local()
+
+    ws = clients_ws()
+    values = ws.get_all_values()
+
+    if not values:
+        return 0
+
+    headers = values[0]
+    count = 0
+
+    for row_values in values[1:]:
+        row = row_to_dict(headers, row_values)
+
+        if str(row.get("active", "1")).strip() == "0":
+            continue
+
+        row_manager = normalize_text(row.get("manager"))
+        if row_manager.lower() != normalize_text(manager).lower():
+            continue
+
+        client = normalize_text(row.get("client"))
+        if not client:
+            continue
+
+        category = normalize_category(row.get("category"))
+        interval = CONTACT_INTERVALS.get(category, 30)
+
+        last_contact = parse_date(row.get("last_contact"))
+        next_contact = parse_date(row.get("next_contact"))
+        last_order = parse_date(row.get("last_order"))
+        last_request = parse_date(row.get("last_request"))
+
+        recent_order = (
+            last_order is not None
+            and (today - last_order).days <= 25
+        )
+        recent_request = (
+            last_request is not None
+            and (today - last_request).days <= 25
+        )
+
+        if recent_order or recent_request:
+            continue
+
+        if next_contact and next_contact > today:
+            continue
+
+        if last_contact and not next_contact:
+            due_date = last_contact + timedelta(days=interval)
+            if due_date > today:
+                continue
+
+        count += 1
+
+    return count
+
+
 def get_or_create_daily_tasks(
     manager,
     telegram_id,
@@ -1332,6 +1389,21 @@ def get_or_create_daily_tasks(
                 "last_request"
             )
         )
+
+        # Если был заказ ИЛИ запрос за последние 25 дней —
+        # клиент не попадает в ежедневную выборку.
+        recent_order = (
+            last_order is not None
+            and (today - last_order).days <= 25
+        )
+
+        recent_request = (
+            last_request is not None
+            and (today - last_request).days <= 25
+        )
+
+        if recent_order or recent_request:
+            continue
 
         # Отложен до будущего.
         if (
@@ -2478,3 +2550,4 @@ async def start_attention_scheduler(
         await asyncio.sleep(
             30
         )
+        
