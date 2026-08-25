@@ -300,9 +300,14 @@ def parse_date(value):
     if value is None:
         return None
 
-    if isinstance(value, pd.Timestamp):
+    # ВАЖНО: ловим pandas NaT / NaN раньше всех проверок
+    try:
         if pd.isna(value):
             return None
+    except Exception:
+        pass
+
+    if isinstance(value, pd.Timestamp):
         return value.date()
 
     if isinstance(value, datetime):
