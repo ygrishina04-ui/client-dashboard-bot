@@ -812,29 +812,27 @@ def sync_portfolio_from_excel(path):
 # MANAGER REGISTRATION
 # =========================================================
 
-def register_manager(
-    manager,
-    telegram_id,
-):
+def register_manager(manager, telegram_id):
     ws = managers_ws()
-
     values = ws.get_all_values()
-
-    headers = (
-        values[0]
-        if values
-        else MANAGER_HEADERS
-    )
 
     if not values:
         ws.append_row(
             MANAGER_HEADERS,
             value_input_option="USER_ENTERED",
         )
+        values = [MANAGER_HEADERS]
 
-        values = [
-            MANAGER_HEADERS
-        ]
+    headers = values[0]
+
+    manager_norm = normalize_text(manager).lower()
+    target_id = str(telegram_id).strip()
+
+    # Сначала ищем строку с этим Telegram ID
+    telegram_row_num = None
+
+    # Потом строку с этим менеджером
+    manager_row_num = None
 
     for row_num, row_values in enumerate(
         values[1:],
@@ -845,35 +843,64 @@ def register_manager(
             row_values,
         )
 
-        if (
-            normalize_text(
-                row.get(
-                    "manager"
-                )
-            ).lower()
-            == normalize_text(
-                manager
-            ).lower()
-        ):
-            update_row_by_fields(
-                ws,
-                row_num,
-                {
-                    "manager": manager,
-                    "telegram_id": str(
-                        telegram_id
-                    ),
-                    "active": "1",
-                },
-            )
+        saved_manager = normalize_text(
+            row.get("manager", "")
+        ).lower()
 
-            return
+        saved_id = str(
+            row.get("telegram_id", "")
+        ).strip().lstrip("'")
+
+        if saved_id.endswith(".0"):
+            saved_id = saved_id[:-2]
+
+        if saved_id == target_id:
+            telegram_row_num = row_num
+
+        if saved_manager == manager_norm:
+            manager_row_num = row_num
+
+    # Если этот Telegram уже был привязан к другому менеджеру —
+    # просто меняем менеджера в этой строке.
+    if telegram_row_num:
+        update_row_by_fields(
+            ws,
+            telegram_row_num,
+            {
+                "manager": manager,
+                "telegram_id": f"'{telegram_id}",
+                "active": "1",
+            },
+        )
+        return
+
+    # Если менеджер уже есть, но Telegram другой/пустой —
+    # обновляем его строку.
+    if manager_row_num:
+        update_row_by_fields(
+            ws,
+            manager_row_num,
+            {
+                "manager": manager,
+                "telegram_id": f"'{telegram_id}",
+                "active": "1",
+            },
+        )
+        return
+
+    # Иначе создаём новую строку.
+    headers = get_headers(ws)
+
+    data = {
+        "manager": manager,
+        "telegram_id": f"'{telegram_id}",
+        "active": "1",
+    }
 
     ws.append_row(
         [
-            manager,
-            str(telegram_id),
-            "1",
+            data.get(header, "")
+            for header in headers
         ],
         value_input_option="USER_ENTERED",
     )
@@ -888,7 +915,7 @@ def get_manager_by_telegram_id(telegram_id):
 
     headers = values[0]
 
-    target_id = str(telegram_id).strip()
+    target_id = f"'{telegram_id}".strip()
 
     for row_values in values[1:]:
         row = row_to_dict(headers, row_values)
