@@ -491,6 +491,82 @@ def client_key(client, manager):
     )
 
 
+def normalize_person_name(value):
+    text = normalize_text(value).lower()
+
+    for ch in '.,;:"()[]{}':
+        text = text.replace(ch, " ")
+
+    return [
+        part
+        for part in text.split()
+        if part
+    ]
+
+
+def manager_names_match(left, right):
+    left_text = normalize_text(left).lower()
+    right_text = normalize_text(right).lower()
+
+    if left_text == right_text:
+        return True
+
+    left_parts = normalize_person_name(left)
+    right_parts = normalize_person_name(right)
+
+    # Позволяет "Лилия Буглак" == "Буглак Лилия",
+    # но не склеивает разных людей по одной фамилии.
+    return (
+        len(left_parts) >= 2
+        and len(right_parts) >= 2
+        and set(left_parts) == set(right_parts)
+    )
+
+
+def resolve_manager_name_from_clients(manager):
+    """
+    Возвращает точное написание менеджера из листа CLIENTS.
+    """
+    ws = clients_ws()
+    values = ws.get_all_values()
+
+    if not values:
+        return None
+
+    headers = values[0]
+
+    for row_values in values[1:]:
+        row = row_to_dict(headers, row_values)
+        saved_manager = normalize_text(row.get("manager"))
+
+        if saved_manager and manager_names_match(saved_manager, manager):
+            return saved_manager
+
+    return None
+
+
+def count_clients_for_manager(manager):
+    ws = clients_ws()
+    values = ws.get_all_values()
+
+    if not values:
+        return 0
+
+    headers = values[0]
+    count = 0
+
+    for row_values in values[1:]:
+        row = row_to_dict(headers, row_values)
+
+        if (
+            str(row.get("active", "1")).strip() != "0"
+            and manager_names_match(row.get("manager"), manager)
+        ):
+            count += 1
+
+    return count
+
+
 # =========================================================
 # PORTFOLIO SYNC — OPTIMIZED
 # =========================================================
@@ -1201,15 +1277,9 @@ def get_or_create_daily_tasks(
         ).strip() == "0":
             continue
 
-        if (
-            normalize_text(
-                row.get(
-                    "manager"
-                )
-            ).lower()
-            != normalize_text(
-                manager
-            ).lower()
+        if not manager_names_match(
+            row.get("manager"),
+            manager,
         ):
             continue
 
@@ -1684,13 +1754,25 @@ async def send_today_tasks(
     ]
 
     if not active:
-        await bot.send_message(
-            telegram_id,
-            (
-                "✅ На сегодня клиентов "
-                "для обязательного контакта нет."
-            ),
-        )
+        total_clients = count_clients_for_manager(manager)
+
+        if total_clients == 0:
+            await bot.send_message(
+                telegram_id,
+                "⚠️ Для менеджера "
+                f"<b>{manager}</b> в листе CLIENTS "
+                "не найдено ни одного активного клиента.\n\n"
+                "Повтори /register и укажи ФИО точно "
+                "как в колонке <b>Оперативный менеджер</b>."
+            )
+        else:
+            await bot.send_message(
+                telegram_id,
+                "✅ На сегодня клиентов для обязательного "
+                "контакта нет.\n"
+                f"В портфеле за вами закреплено: "
+                f"<b>{total_clients}</b> клиентов."
+            )
 
         return
 
@@ -1804,14 +1886,27 @@ def register_attention_handlers(
 
             return
 
+        canonical_manager = resolve_manager_name_from_clients(
+            manager
+        )
+
+        if not canonical_manager:
+            await message.answer(
+                "⚠️ Не нашла такого оперативного менеджера "
+                "в загруженном портфеле.\n\n"
+                "Введи ФИО так, как оно указано в колонке "
+                "<b>Оперативный менеджер</b>."
+            )
+            return
+
         register_manager(
-            manager,
+            canonical_manager,
             message.from_user.id,
         )
 
         await message.answer(
             "✅ Telegram привязан:\n"
-            f"<b>{manager}</b>"
+            f"<b>{canonical_manager}</b>"
         )
 
     @dp.message(
@@ -1861,6 +1956,39 @@ def register_attention_handlers(
             bot,
             message.from_user.id,
             manager,
+        )
+
+    @dp.message(
+        Command(
+            "debug_today"
+        )
+    )
+    async def debug_today(
+        message: Message,
+    ):
+        manager = get_manager_by_telegram_id(
+            message.from_user.id
+        )
+
+        if not manager:
+            await message.answer(
+                "Сначала выполни /register ФИО"
+            )
+            return
+
+        client_count = count_clients_for_manager(
+            manager
+        )
+
+        existing_tasks = get_today_tasks(
+            manager
+        )
+
+        await message.answer(
+            "🔎 <b>Проверка выборки</b>\\n\\n"
+            f"Менеджер: <b>{manager}</b>\\n"
+            f"Клиентов в CLIENTS: <b>{client_count}</b>\\n"
+            f"Заданий на сегодня: <b>{len(existing_tasks)}</b>"
         )
 
     @dp.callback_query(
@@ -2350,4 +2478,3 @@ async def start_attention_scheduler(
         await asyncio.sleep(
             30
         )
-
