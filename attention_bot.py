@@ -50,9 +50,21 @@ REPORT_CHAT_ID = os.getenv(
     "",
 ).strip()
 
+REPORT_SEND_TIME = os.getenv(
+    "REPORT_SEND_TIME",
+    "18:00",
+).strip()
+
 CLIENTS_PER_DAY = int(
     os.getenv("CLIENTS_PER_DAY", "3")
 )
+
+# Python weekday(): ПН=0, ВТ=1, СР=2, ЧТ=3, ПТ=4, СБ=5, ВС=6
+AUTO_SEND_WEEKDAYS = {
+    1,  # вторник
+    2,  # среда
+    3,  # четверг
+}
 
 TZ = ZoneInfo(TIMEZONE)
 
@@ -2167,6 +2179,31 @@ def register_attention_handlers(
 
     @dp.message(
         Command(
+            "report"
+        )
+    )
+    async def report(
+        message: Message,
+    ):
+        # Если REPORT_CHAT_ID задан — отчет вручную доступен
+        # только руководительскому чату.
+        if (
+            REPORT_CHAT_ID
+            and str(message.chat.id)
+            != str(REPORT_CHAT_ID)
+        ):
+            await message.answer(
+                "⚠️ Отчет доступен только руководителю."
+            )
+            return
+
+        await send_report(
+            bot,
+            message.chat.id,
+        )
+
+    @dp.message(
+        Command(
             "debug_today"
         )
     )
@@ -2587,14 +2624,18 @@ async def send_report(
 
     values = ws.get_all_values()
 
-    if not values:
-        return
-
-    headers = values[0]
-
     today_str = today_local().strftime(
         "%Y-%m-%d"
     )
+
+    if not values:
+        await bot.send_message(
+            chat_id,
+            "📊 Сегодня заданий по коммуникации нет."
+        )
+        return
+
+    headers = values[0]
 
     grouped = {}
 
@@ -2621,12 +2662,17 @@ async def send_report(
             )
         )
 
+        if not manager:
+            continue
+
         grouped.setdefault(
             manager,
             {
                 "total": 0,
-                "done": 0,
+                "contacted": 0,
+                "postponed": 0,
                 "pending": [],
+                "postponed_clients": [],
             },
         )
 
@@ -2636,83 +2682,186 @@ async def send_report(
             "total"
         ] += 1
 
-        if str(
+        status = str(
             row.get(
                 "status",
                 "",
             )
-        ).strip() in {
-            "done",
-            "postponed",
-        }:
+        ).strip()
+
+        client = normalize_text(
+            row.get(
+                "client"
+            )
+        )
+
+        if status == "done":
             grouped[
                 manager
             ][
-                "done"
+                "contacted"
             ] += 1
 
-        else:
+        elif status == "postponed":
             grouped[
                 manager
             ][
-                "pending"
-            ].append(
-                normalize_text(
-                    row.get(
-                        "client"
-                    )
+                "postponed"
+            ] += 1
+
+            if client:
+                grouped[
+                    manager
+                ][
+                    "postponed_clients"
+                ].append(
+                    client
                 )
-            )
+
+        else:
+            if client:
+                grouped[
+                    manager
+                ][
+                    "pending"
+                ].append(
+                    client
+                )
 
     if not grouped:
+        await bot.send_message(
+            chat_id,
+            "📊 Сегодня задания менеджерам еще не создавались."
+        )
         return
 
+    total_assigned = sum(
+        info["total"]
+        for info in grouped.values()
+    )
+
+    total_contacted = sum(
+        info["contacted"]
+        for info in grouped.values()
+    )
+
+    total_postponed = sum(
+        info["postponed"]
+        for info in grouped.values()
+    )
+
+    total_pending = sum(
+        len(info["pending"])
+        for info in grouped.values()
+    )
+
     lines = [
-        "📊 <b>Контроль коммуникации</b>",
+        (
+            "📊 <b>Контроль коммуникации · "
+            f"{today_local().strftime('%d.%m')}</b>"
+        ),
         "",
+        (
+            f"Назначено: <b>{total_assigned}</b> · "
+            f"Связались: <b>{total_contacted}</b> · "
+            f"Отложили: <b>{total_postponed}</b> · "
+            f"Не обработано: <b>{total_pending}</b>"
+        ),
+        "",
+        "<b>По менеджерам:</b>",
     ]
 
-    for manager, info in grouped.items():
+    for manager, info in sorted(
+        grouped.items(),
+        key=lambda x: x[0].lower(),
+    ):
+        completed = (
+            info["contacted"]
+            + info["postponed"]
+        )
+
         icon = (
             "✅"
-            if info[
-                "done"
-            ] == info[
-                "total"
-            ]
+            if completed == info["total"]
             else "⚠️"
         )
 
         lines.append(
             f"{icon} <b>{manager}</b> — "
-            f"{info['done']} / {info['total']}"
+            f"{completed}/{info['total']} "
+            f"(связались {info['contacted']}, "
+            f"отложили {info['postponed']})"
         )
 
-    pending = []
+    pending_lines = []
 
     for manager, info in grouped.items():
-        for client in info[
-            "pending"
-        ]:
-            pending.append(
+        for client in info["pending"]:
+            pending_lines.append(
                 f"• {client} — {manager}"
             )
 
-    if pending:
+    if pending_lines:
         lines.extend(
             [
                 "",
                 "<b>Не обработаны:</b>",
-                *pending,
+                *pending_lines,
             ]
         )
 
-    await bot.send_message(
-        chat_id,
-        "\n".join(
-            lines
-        )[:4000],
+    # Telegram ограничивает длину сообщения.
+    text = "\n".join(
+        lines
     )
+
+    if len(text) <= 4000:
+        await bot.send_message(
+            chat_id,
+            text,
+        )
+    else:
+        # Основная сводка.
+        await bot.send_message(
+            chat_id,
+            "\n".join(
+                lines[:(
+                    len(lines)
+                    - len(pending_lines)
+                    - (2 if pending_lines else 0)
+                )]
+            )[:4000],
+        )
+
+        # Необработанные — отдельными частями.
+        if pending_lines:
+            chunk = "<b>Не обработаны:</b>\n"
+
+            for line in pending_lines:
+                candidate = (
+                    chunk
+                    + line
+                    + "\n"
+                )
+
+                if len(candidate) > 3900:
+                    await bot.send_message(
+                        chat_id,
+                        chunk.rstrip(),
+                    )
+                    chunk = (
+                        "<b>Не обработаны:</b>\n"
+                        + line
+                        + "\n"
+                    )
+                else:
+                    chunk = candidate
+
+            if chunk.strip():
+                await bot.send_message(
+                    chat_id,
+                    chunk.rstrip(),
+                )
 
 
 async def start_attention_scheduler(
@@ -2721,6 +2870,17 @@ async def start_attention_scheduler(
     last_send = None
     last_report = None
 
+    print(
+        (
+            "ATTENTION SCHEDULER STARTED: "
+            f"days=Tue/Wed/Thu; "
+            f"send={DAILY_SEND_TIME}; "
+            f"report={REPORT_SEND_TIME}; "
+            f"clients={CLIENTS_PER_DAY}"
+        ),
+        flush=True,
+    )
+
     while True:
         try:
             now = now_local()
@@ -2728,14 +2888,35 @@ async def start_attention_scheduler(
                 "%H:%M"
             )
 
+            weekday = now.weekday()
+
+            is_auto_day = (
+                weekday
+                in AUTO_SEND_WEEKDAYS
+            )
+
+            # ---------------------------------------------
+            # Автоматическая выдача 3 клиентов:
+            # только ВТ / СР / ЧТ.
+            # ---------------------------------------------
             if (
-                hhmm
+                is_auto_day
+                and hhmm
                 == DAILY_SEND_TIME
                 and last_send
                 != now.date()
             ):
                 managers = (
                     get_active_managers()
+                )
+
+                print(
+                    (
+                        "AUTO CLIENT SEND: "
+                        f"{now.strftime('%d.%m.%Y')} "
+                        f"managers={len(managers)}"
+                    ),
+                    flush=True,
                 )
 
                 for item in managers:
@@ -2755,18 +2936,28 @@ async def start_attention_scheduler(
 
                 last_send = now.date()
 
+            # ---------------------------------------------
+            # Вечерний отчет руководителю:
+            # тоже только ВТ / СР / ЧТ.
+            # ---------------------------------------------
             if (
-                REPORT_CHAT_ID
-                and hhmm == "18:00"
+                is_auto_day
+                and REPORT_CHAT_ID
+                and hhmm
+                == REPORT_SEND_TIME
                 and last_report
                 != now.date()
             ):
-                await send_report(
-                    bot,
-                    int(
-                        REPORT_CHAT_ID
-                    ),
-                )
+                try:
+                    await send_report(
+                        bot,
+                        int(
+                            REPORT_CHAT_ID
+                        ),
+                    )
+
+                except Exception:
+                    traceback.print_exc()
 
                 last_report = now.date()
 
