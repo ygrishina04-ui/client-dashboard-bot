@@ -879,11 +879,8 @@ def register_manager(
     )
 
 
-def get_manager_by_telegram_id(
-    telegram_id,
-):
+def get_manager_by_telegram_id(telegram_id):
     ws = managers_ws()
-
     values = ws.get_all_values()
 
     if not values:
@@ -891,34 +888,30 @@ def get_manager_by_telegram_id(
 
     headers = values[0]
 
+    target_id = str(telegram_id).strip()
+
     for row_values in values[1:]:
-        row = row_to_dict(
-            headers,
-            row_values,
-        )
+        row = row_to_dict(headers, row_values)
+
+        saved_id = str(
+            row.get("telegram_id", "")
+        ).strip()
+
+        # Google Sheets иногда возвращает числовой ID
+        # как "123456789.0"
+        if saved_id.endswith(".0"):
+            saved_id = saved_id[:-2]
+
+        active = str(
+            row.get("active", "1")
+        ).strip().lower()
 
         if (
-            str(
-                row.get(
-                    "telegram_id",
-                    "",
-                )
-            ).strip()
-            == str(
-                telegram_id
-            )
-            and str(
-                row.get(
-                    "active",
-                    "1",
-                )
-            ).strip()
-            != "0"
+            saved_id == target_id
+            and active not in {"0", "false", "нет", "no"}
         ):
             return normalize_text(
-                row.get(
-                    "manager"
-                )
+                row.get("manager")
             )
 
     return None
