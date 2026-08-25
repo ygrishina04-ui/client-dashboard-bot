@@ -922,8 +922,8 @@ def get_manager_by_telegram_id(telegram_id):
 
         saved_id = str(
             row.get("telegram_id", "")
-        ).strip()
-
+        ).strip().lstrip("'")
+        
         # Google Sheets иногда возвращает числовой ID
         # как "123456789.0"
         if saved_id.endswith(".0"):
