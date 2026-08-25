@@ -124,6 +124,7 @@ TASK_HEADERS = [
     "status",
     "created_at",
     "completed_at",
+    "card_message_id",
 ]
 
 COMM_HEADERS = [
@@ -1525,6 +1526,7 @@ def get_or_create_daily_tasks(
             "new",
             created_at,
             "",
+            "",
         ]
         for item in selected
     ]
@@ -1702,6 +1704,123 @@ def save_postpone(
     mark_task_status(
         task_row,
         "postponed",
+    )
+
+
+
+# =========================================================
+# MESSAGE CLEANUP
+# =========================================================
+
+async def remember_chain_message(state, message_id):
+    data = await state.get_data()
+
+    ids = list(
+        data.get(
+            "chain_message_ids",
+            [],
+        )
+    )
+
+    if message_id not in ids:
+        ids.append(
+            message_id
+        )
+
+    await state.update_data(
+        chain_message_ids=ids
+    )
+
+
+async def safe_delete_message(
+    bot,
+    chat_id,
+    message_id,
+):
+    if not message_id:
+        return
+
+    try:
+        await bot.delete_message(
+            chat_id=chat_id,
+            message_id=int(message_id),
+        )
+    except Exception:
+        # Сообщение могло быть уже удалено,
+        # слишком старым или недоступным.
+        pass
+
+
+async def cleanup_client_chain(
+    bot,
+    chat_id,
+    task_row,
+    extra_message_ids=None,
+):
+    ids = set()
+
+    task = get_task_by_row(
+        task_row
+    )
+
+    if task:
+        card_id = str(
+            task.get(
+                "card_message_id",
+                "",
+            )
+        ).strip()
+
+        if card_id:
+            try:
+                ids.add(
+                    int(float(card_id))
+                )
+            except Exception:
+                pass
+
+    for message_id in (
+        extra_message_ids or []
+    ):
+        try:
+            ids.add(
+                int(message_id)
+            )
+        except Exception:
+            pass
+
+    # Удаляем от новых сообщений к старым.
+    for message_id in sorted(
+        ids,
+        reverse=True,
+    ):
+        await safe_delete_message(
+            bot,
+            chat_id,
+            message_id,
+        )
+
+
+def get_remaining_today_count(
+    manager,
+):
+    tasks = get_today_tasks(
+        manager
+    )
+
+    return sum(
+        1
+        for task in tasks
+        if str(
+            task.get(
+                "status",
+                "",
+            )
+        ).strip()
+        not in {
+            "done",
+            "postponed",
+        }
     )
 
 
@@ -1903,7 +2022,7 @@ async def send_today_tasks(
             {},
         )
 
-        await bot.send_message(
+        card_message = await bot.send_message(
             telegram_id,
             (
                 f"<b>{index}. {client}</b>\n"
@@ -1920,6 +2039,22 @@ async def send_today_tasks(
                     ]
                 )
             ),
+        )
+
+        # Запоминаем ID карточки клиента,
+        # чтобы после отработки убрать ее из чата.
+        update_row_by_fields(
+            tasks_ws(),
+            int(
+                task[
+                    "_row_num"
+                ]
+            ),
+            {
+                "card_message_id": str(
+                    card_message.message_id
+                ),
+            },
         )
 
 
@@ -2070,6 +2205,7 @@ def register_attention_handlers(
     )
     async def contact(
         callback: CallbackQuery,
+        state: FSMContext,
     ):
         task_row = int(
             callback.data
@@ -2088,7 +2224,7 @@ def register_attention_handlers(
 
             return
 
-        await callback.message.answer(
+        prompt_message = await callback.message.answer(
             (
                 "Какой результат по клиенту "
                 f"<b>{task.get('client')}</b>?"
@@ -2096,6 +2232,13 @@ def register_attention_handlers(
             reply_markup=result_keyboard(
                 task_row
             ),
+        )
+
+        # Сохраняем всю цепочку сообщений по этому клиенту.
+        await state.update_data(
+            chain_message_ids=[
+                prompt_message.message_id
+            ]
         )
 
         await callback.answer()
@@ -2144,6 +2287,11 @@ def register_attention_handlers(
             "Другое",
         )
 
+        await remember_chain_message(
+            state,
+            callback.message.message_id,
+        )
+
         await state.update_data(
             task_row=task_row,
             client=task.get(
@@ -2157,9 +2305,14 @@ def register_attention_handlers(
             ContactFlow.waiting_comment
         )
 
-        await callback.message.answer(
+        prompt_message = await callback.message.answer(
             "Напиши короткий комментарий.\n"
             "Если не нужен — отправь <code>-</code>."
+        )
+
+        await remember_chain_message(
+            state,
+            prompt_message.message_id,
         )
 
         await callback.answer()
@@ -2181,11 +2334,16 @@ def register_attention_handlers(
         if comment_text == "-":
             comment_text = ""
 
+        await remember_chain_message(
+            state,
+            message.message_id,
+        )
+
         await state.update_data(
             comment=comment_text
         )
 
-        await message.answer(
+        prompt_message = await message.answer(
             "Когда вернуться к клиенту?",
             reply_markup=next_contact_keyboard(
                 int(
@@ -2194,6 +2352,11 @@ def register_attention_handlers(
                     ]
                 )
             ),
+        )
+
+        await remember_chain_message(
+            state,
+            prompt_message.message_id,
         )
 
     @dp.callback_query(
@@ -2223,6 +2386,10 @@ def register_attention_handlers(
             )
         )
 
+        task_row = int(
+            task_row_text
+        )
+
         save_communication(
             client=data[
                 "client"
@@ -2239,18 +2406,42 @@ def register_attention_handlers(
                 "",
             ),
             next_contact=next_date,
-            task_row=int(
-                task_row_text
+            task_row=task_row,
+        )
+
+        await remember_chain_message(
+            state,
+            callback.message.message_id,
+        )
+
+        state_data = await state.get_data()
+
+        await cleanup_client_chain(
+            bot,
+            callback.message.chat.id,
+            task_row,
+            state_data.get(
+                "chain_message_ids",
+                [],
             ),
         )
 
+        manager = data[
+            "manager"
+        ]
+
         await state.clear()
 
-        await callback.message.answer(
-            "✅ Контакт зафиксирован.\n"
-            "Следующий: "
-            f"<b>{next_date.strftime('%d.%m.%Y')}</b>"
+        remaining = get_remaining_today_count(
+            manager
         )
+
+        if remaining == 0:
+            await bot.send_message(
+                callback.message.chat.id,
+                "✅ <b>План на сегодня выполнен</b>\n"
+                "Все назначенные клиенты обработаны."
+            )
 
         await callback.answer()
 
@@ -2290,15 +2481,21 @@ def register_attention_handlers(
                 "client"
             ),
             manager=manager,
+            chain_message_ids=[],
         )
 
         await state.set_state(
             ContactFlow.waiting_postpone_reason
         )
 
-        await callback.message.answer(
+        prompt_message = await callback.message.answer(
             "Почему откладываем? "
             "Напиши короткую причину."
+        )
+
+        await remember_chain_message(
+            state,
+            prompt_message.message_id,
         )
 
         await callback.answer()
@@ -2317,11 +2514,22 @@ def register_attention_handlers(
             or ""
         ).strip()
 
+        await remember_chain_message(
+            state,
+            message.message_id,
+        )
+
         next_date = (
             today_local()
             + timedelta(
                 days=14
             )
+        )
+
+        task_row = int(
+            data[
+                "task_row"
+            ]
         )
 
         save_postpone(
@@ -2334,19 +2542,37 @@ def register_attention_handlers(
             telegram_id=message.from_user.id,
             reason=reason,
             next_contact=next_date,
-            task_row=int(
-                data[
-                    "task_row"
-                ]
+            task_row=task_row,
+        )
+
+        state_data = await state.get_data()
+
+        await cleanup_client_chain(
+            bot,
+            message.chat.id,
+            task_row,
+            state_data.get(
+                "chain_message_ids",
+                [],
             ),
         )
 
+        manager = data[
+            "manager"
+        ]
+
         await state.clear()
 
-        await message.answer(
-            "⏰ Клиент отложен на 14 дней, до "
-            f"<b>{next_date.strftime('%d.%m.%Y')}</b>"
+        remaining = get_remaining_today_count(
+            manager
         )
+
+        if remaining == 0:
+            await bot.send_message(
+                message.chat.id,
+                "✅ <b>План на сегодня выполнен</b>\n"
+                "Все назначенные клиенты обработаны."
+            )
 
 
 # =========================================================
@@ -2550,4 +2776,3 @@ async def start_attention_scheduler(
         await asyncio.sleep(
             30
         )
-        
