@@ -82,12 +82,20 @@ RESULT_OPTIONS = [
 ]
 
 
+# =========================================================
+# FSM
+# =========================================================
+
 class ContactFlow(StatesGroup):
     waiting_comment = State()
     waiting_custom_date = State()
     waiting_postpone_reason = State()
     waiting_postpone_date = State()
 
+
+# =========================================================
+# GOOGLE SHEETS STRUCTURE
+# =========================================================
 
 CLIENT_HEADERS = [
     "client",
@@ -132,7 +140,7 @@ COMM_HEADERS = [
 
 
 # =========================================================
-# GOOGLE SHEETS
+# GOOGLE SHEETS BASE
 # =========================================================
 
 def get_spreadsheet():
@@ -154,14 +162,22 @@ def get_spreadsheet():
     )
 
     gc = gspread.authorize(creds)
-    return gc.open_by_key(GOOGLE_SHEET_ID)
+
+    return gc.open_by_key(
+        GOOGLE_SHEET_ID
+    )
 
 
 def get_or_create_ws(title, headers):
+    """
+    Один вызов для получения/создания листа.
+    Важно: не используем get_all_values() повторно внутри циклов.
+    """
     ss = get_spreadsheet()
 
     try:
         ws = ss.worksheet(title)
+
     except gspread.WorksheetNotFound:
         ws = ss.add_worksheet(
             title=title,
@@ -169,33 +185,40 @@ def get_or_create_ws(title, headers):
             cols=max(12, len(headers)),
         )
 
-    values = ws.get_all_values()
-
-    if not values:
         ws.append_row(
             headers,
             value_input_option="USER_ENTERED",
         )
+
         return ws
 
-    existing_headers = values[0]
+    # Одно чтение первой строки.
+    existing_headers = ws.row_values(1)
 
-    missing = [
-        h
-        for h in headers
-        if h not in existing_headers
-    ]
+    if not existing_headers:
+        ws.append_row(
+            headers,
+            value_input_option="USER_ENTERED",
+        )
 
-    if missing:
-        merged = existing_headers + missing
-        end = gspread.utils.rowcol_to_a1(
-            1,
-            len(merged),
-        )
-        ws.update(
-            f"A1:{end}",
-            [merged],
-        )
+    else:
+        missing = [
+            h for h in headers
+            if h not in existing_headers
+        ]
+
+        if missing:
+            merged = existing_headers + missing
+
+            end = gspread.utils.rowcol_to_a1(
+                1,
+                len(merged),
+            )
+
+            ws.update(
+                f"A1:{end}",
+                [merged],
+            )
 
     return ws
 
@@ -228,35 +251,103 @@ def communications_ws():
     )
 
 
-def get_headers(ws):
-    values = ws.get_all_values()
-    return values[0] if values else []
-
-
 def row_to_dict(headers, values):
-    values = values + [""] * max(
+    padded = values + [""] * max(
         0,
         len(headers) - len(values),
     )
 
-    return dict(zip(headers, values))
+    return dict(
+        zip(headers, padded)
+    )
 
 
-def update_row_by_fields(ws, row_num, updates):
-    headers = get_headers(ws)
+def normalize_sheet_headers(
+    ws,
+    required_headers,
+    current_headers=None,
+):
+    """
+    Добавляет отсутствующие колонки максимум одним update.
+    """
+    headers = (
+        list(current_headers)
+        if current_headers is not None
+        else ws.row_values(1)
+    )
 
-    for field in updates:
+    if not headers:
+        headers = list(required_headers)
+
+        end = gspread.utils.rowcol_to_a1(
+            1,
+            len(headers),
+        )
+
+        ws.update(
+            f"A1:{end}",
+            [headers],
+        )
+
+        return headers
+
+    changed = False
+
+    for field in required_headers:
         if field not in headers:
             headers.append(field)
+            changed = True
 
-    row = ws.row_values(row_num)
+    if changed:
+        end = gspread.utils.rowcol_to_a1(
+            1,
+            len(headers),
+        )
+
+        ws.update(
+            f"A1:{end}",
+            [headers],
+        )
+
+    return headers
+
+
+def update_row_by_fields(
+    ws,
+    row_num,
+    updates,
+):
+    """
+    Для единичных действий пользователя.
+    Не используется при массовом импорте портфеля.
+    """
+    values = ws.get_all_values()
+
+    if not values:
+        return
+
+    headers = normalize_sheet_headers(
+        ws,
+        list(updates.keys()),
+        values[0],
+    )
+
+    # Если после добавления заголовков данных меньше — расширяем.
+    row = (
+        values[row_num - 1][:]
+        if len(values) >= row_num
+        else []
+    )
+
     row += [""] * max(
         0,
         len(headers) - len(row),
     )
 
     for field, value in updates.items():
-        row[headers.index(field)] = (
+        idx = headers.index(field)
+
+        row[idx] = (
             ""
             if value is None
             else str(value)
@@ -297,6 +388,10 @@ def normalize_text(value):
 
 
 def parse_date(value):
+    """
+    Безопасно обрабатывает:
+    None / NaN / NaT / Timestamp / datetime / date / str
+    """
     if value is None:
         return None
 
@@ -324,7 +419,9 @@ def fmt_date(value):
     if d is None:
         return ""
 
-    return d.strftime("%d.%m.%Y")
+    return d.strftime(
+        "%d.%m.%Y"
+    )
 
 
 def pretty_date(value):
@@ -333,12 +430,17 @@ def pretty_date(value):
     if d is None:
         return "—"
 
-    return d.strftime("%d.%m.%Y")
+    return d.strftime(
+        "%d.%m.%Y"
+    )
 
 
 def normalize_category(value):
-    text = normalize_text(value).lower()
+    text = normalize_text(
+        value
+    ).lower()
 
+    # Сначала нерегулярный, потому что в нем есть слово "регуляр".
     if "нерегуляр" in text:
         return "Нерегулярный"
 
@@ -348,11 +450,16 @@ def normalize_category(value):
     if "стабил" in text:
         return "Стабильный"
 
-    return normalize_text(value) or "Нерегулярный"
+    return (
+        normalize_text(value)
+        or "Нерегулярный"
+    )
 
 
 def normalize_group(value):
-    return normalize_text(value).upper()
+    return normalize_text(
+        value
+    ).upper()
 
 
 def find_column(df, aliases):
@@ -362,7 +469,9 @@ def find_column(df, aliases):
     }
 
     for alias in aliases:
-        key = normalize_text(alias).lower()
+        key = normalize_text(
+            alias
+        ).lower()
 
         if key in normalized:
             return normalized[key]
@@ -378,15 +487,28 @@ def client_key(client, manager):
 
 
 # =========================================================
-# PORTFOLIO SYNC
+# PORTFOLIO SYNC — OPTIMIZED
 # =========================================================
 
 def sync_portfolio_from_excel(path):
+    """
+    Массовая синхронизация без сотен чтений Google Sheets.
+
+    Google Sheets:
+    - CLIENTS читается один раз;
+    - существующие строки обновляются через один batch_update;
+    - новые клиенты добавляются одним append_rows.
+    """
+
     df = pd.read_excel(path)
 
     client_col = find_column(
         df,
-        ["Наименование", "Клиент", "Компания"],
+        [
+            "Наименование",
+            "Клиент",
+            "Компания",
+        ],
     )
 
     manager_col = find_column(
@@ -400,12 +522,17 @@ def sync_portfolio_from_excel(path):
 
     category_col = find_column(
         df,
-        ["Признак", "Категория"],
+        [
+            "Признак",
+            "Категория",
+        ],
     )
 
     group_col = find_column(
         df,
-        ["Группа"],
+        [
+            "Группа",
+        ],
     )
 
     last_order_col = find_column(
@@ -427,17 +554,34 @@ def sync_portfolio_from_excel(path):
     missing = []
 
     if not client_col:
-        missing.append("Наименование")
+        missing.append(
+            "Наименование"
+        )
+
     if not manager_col:
-        missing.append("Оперативный менеджер")
+        missing.append(
+            "Оперативный менеджер"
+        )
+
     if not category_col:
-        missing.append("Признак")
+        missing.append(
+            "Признак"
+        )
+
     if not group_col:
-        missing.append("Группа")
+        missing.append(
+            "Группа"
+        )
+
     if not last_order_col:
-        missing.append("Дата последнего заказа")
+        missing.append(
+            "Дата последнего заказа"
+        )
+
     if not last_request_col:
-        missing.append("Дата последнего запроса")
+        missing.append(
+            "Дата последнего запроса"
+        )
 
     if missing:
         raise ValueError(
@@ -446,12 +590,48 @@ def sync_portfolio_from_excel(path):
         )
 
     ws = clients_ws()
-    headers = get_headers(ws)
+
+    # КЛЮЧЕВОЕ: ровно одно массовое чтение CLIENTS.
+    all_values = ws.get_all_values()
+
+    if not all_values:
+        headers = list(
+            CLIENT_HEADERS
+        )
+
+        ws.append_row(
+            headers,
+            value_input_option="USER_ENTERED",
+        )
+
+        all_values = [
+            headers
+        ]
+
+    else:
+        headers = normalize_sheet_headers(
+            ws,
+            CLIENT_HEADERS,
+            all_values[0],
+        )
+
+        # Если заголовки расширились, данных в памяти еще нет в новых колонках.
+        if len(headers) > len(all_values[0]):
+            for i in range(
+                1,
+                len(all_values),
+            ):
+                all_values[i] += (
+                    [""] * (
+                        len(headers)
+                        - len(all_values[i])
+                    )
+                )
 
     existing = {}
 
     for row_num, values in enumerate(
-        ws.get_all_values()[1:],
+        all_values[1:],
         start=2,
     ):
         row = row_to_dict(
@@ -469,38 +649,63 @@ def sync_portfolio_from_excel(path):
 
         if client and manager:
             existing[
-                client_key(client, manager)
-            ] = (row_num, row)
+                client_key(
+                    client,
+                    manager,
+                )
+            ] = {
+                "row_num": row_num,
+                "row": row,
+            }
+
+    batch_updates = []
+    append_rows_data = []
 
     new_count = 0
     updated_count = 0
+    skipped_count = 0
 
+    # Чтобы клиенты, перемещенные между менеджерами,
+    # не создавали странных пустых строк, пока ключ = клиент+менеджер.
     for _, source_row in df.iterrows():
         client = normalize_text(
-            source_row.get(client_col)
+            source_row.get(
+                client_col
+            )
         )
 
         manager = normalize_text(
-            source_row.get(manager_col)
+            source_row.get(
+                manager_col
+            )
         )
 
         if not client or not manager:
+            skipped_count += 1
             continue
 
-        data = {
+        source_data = {
             "client": client,
             "manager": manager,
             "category": normalize_category(
-                source_row.get(category_col)
+                source_row.get(
+                    category_col
+                )
             ),
             "group": normalize_group(
-                source_row.get(group_col)
+                source_row.get(
+                    group_col
+                )
             ),
             "last_order": fmt_date(
-                source_row.get(last_order_col)
+                source_row.get(
+                    last_order_col
+                )
             ),
             "last_request": fmt_date(
-                source_row.get(last_request_col)
+                source_row.get(
+                    last_request_col
+                )
             ),
             "active": "1",
         }
@@ -511,39 +716,95 @@ def sync_portfolio_from_excel(path):
         )
 
         if key in existing:
-            row_num, old = existing[key]
+            current = existing[
+                key
+            ]["row"].copy()
 
-            update_row_by_fields(
-                ws,
+            # Не затираем:
+            # last_contact / next_contact / last_result.
+            current.update(
+                source_data
+            )
+
+            row_values = [
+                current.get(
+                    header,
+                    "",
+                )
+                for header in headers
+            ]
+
+            row_num = existing[
+                key
+            ]["row_num"]
+
+            end = gspread.utils.rowcol_to_a1(
                 row_num,
-                data,
+                len(headers),
+            )
+
+            batch_updates.append(
+                {
+                    "range": (
+                        f"A{row_num}:{end}"
+                    ),
+                    "values": [
+                        row_values
+                    ],
+                }
             )
 
             updated_count += 1
 
         else:
-            headers = get_headers(ws)
-
             new_row = {
-                **data,
+                **source_data,
                 "last_contact": "",
                 "next_contact": "",
                 "last_result": "",
             }
 
-            ws.append_row(
+            append_rows_data.append(
                 [
-                    new_row.get(h, "")
-                    for h in headers
-                ],
-                value_input_option="USER_ENTERED",
+                    new_row.get(
+                        header,
+                        "",
+                    )
+                    for header in headers
+                ]
             )
 
             new_count += 1
 
+    # Одно пакетное обновление существующих клиентов.
+    if batch_updates:
+        # Делим на разумные чанки, чтобы не делать гигантский payload.
+        chunk_size = 200
+
+        for i in range(
+            0,
+            len(batch_updates),
+            chunk_size,
+        ):
+            ws.batch_update(
+                batch_updates[
+                    i:i + chunk_size
+                ],
+                value_input_option="USER_ENTERED",
+            )
+
+    # Один append_rows для новых клиентов.
+    if append_rows_data:
+        ws.append_rows(
+            append_rows_data,
+            value_input_option="USER_ENTERED",
+        )
+
     return {
         "new": new_count,
         "updated": updated_count,
+        "skipped": skipped_count,
+        "source_rows": len(df),
     }
 
 
@@ -551,32 +812,61 @@ def sync_portfolio_from_excel(path):
 # MANAGER REGISTRATION
 # =========================================================
 
-def register_manager(manager, telegram_id):
+def register_manager(
+    manager,
+    telegram_id,
+):
     ws = managers_ws()
-    headers = get_headers(ws)
 
-    for row_num, values in enumerate(
-        ws.get_all_values()[1:],
+    values = ws.get_all_values()
+
+    headers = (
+        values[0]
+        if values
+        else MANAGER_HEADERS
+    )
+
+    if not values:
+        ws.append_row(
+            MANAGER_HEADERS,
+            value_input_option="USER_ENTERED",
+        )
+
+        values = [
+            MANAGER_HEADERS
+        ]
+
+    for row_num, row_values in enumerate(
+        values[1:],
         start=2,
     ):
         row = row_to_dict(
             headers,
-            values,
+            row_values,
         )
 
         if (
-            normalize_text(row.get("manager")).lower()
-            == normalize_text(manager).lower()
+            normalize_text(
+                row.get(
+                    "manager"
+                )
+            ).lower()
+            == normalize_text(
+                manager
+            ).lower()
         ):
             update_row_by_fields(
                 ws,
                 row_num,
                 {
                     "manager": manager,
-                    "telegram_id": telegram_id,
+                    "telegram_id": str(
+                        telegram_id
+                    ),
                     "active": "1",
                 },
             )
+
             return
 
     ws.append_row(
@@ -589,23 +879,46 @@ def register_manager(manager, telegram_id):
     )
 
 
-def get_manager_by_telegram_id(telegram_id):
+def get_manager_by_telegram_id(
+    telegram_id,
+):
     ws = managers_ws()
-    headers = get_headers(ws)
 
-    for values in ws.get_all_values()[1:]:
+    values = ws.get_all_values()
+
+    if not values:
+        return None
+
+    headers = values[0]
+
+    for row_values in values[1:]:
         row = row_to_dict(
             headers,
-            values,
+            row_values,
         )
 
         if (
-            str(row.get("telegram_id", "")).strip()
-            == str(telegram_id)
-            and str(row.get("active", "1")).strip() != "0"
+            str(
+                row.get(
+                    "telegram_id",
+                    "",
+                )
+            ).strip()
+            == str(
+                telegram_id
+            )
+            and str(
+                row.get(
+                    "active",
+                    "1",
+                )
+            ).strip()
+            != "0"
         ):
             return normalize_text(
-                row.get("manager")
+                row.get(
+                    "manager"
+                )
             )
 
     return None
@@ -613,33 +926,53 @@ def get_manager_by_telegram_id(telegram_id):
 
 def get_active_managers():
     ws = managers_ws()
-    headers = get_headers(ws)
+
+    values = ws.get_all_values()
+
+    if not values:
+        return []
+
+    headers = values[0]
 
     result = []
 
-    for values in ws.get_all_values()[1:]:
+    for row_values in values[1:]:
         row = row_to_dict(
             headers,
-            values,
+            row_values,
         )
 
         manager = normalize_text(
-            row.get("manager")
+            row.get(
+                "manager"
+            )
         )
 
         telegram_id = str(
-            row.get("telegram_id", "")
+            row.get(
+                "telegram_id",
+                "",
+            )
         ).strip()
 
         active = str(
-            row.get("active", "1")
+            row.get(
+                "active",
+                "1",
+            )
         ).strip()
 
-        if manager and telegram_id and active != "0":
+        if (
+            manager
+            and telegram_id
+            and active != "0"
+        ):
             result.append(
                 {
                     "manager": manager,
-                    "telegram_id": int(telegram_id),
+                    "telegram_id": int(
+                        telegram_id
+                    ),
                 }
             )
 
@@ -647,29 +980,46 @@ def get_active_managers():
 
 
 # =========================================================
-# CLIENT / TASK HELPERS
+# CLIENT STATE
 # =========================================================
 
-def get_client_state(client, manager):
+def get_client_state(
+    client,
+    manager,
+):
     ws = clients_ws()
-    headers = get_headers(ws)
 
-    for row_num, values in enumerate(
-        ws.get_all_values()[1:],
+    values = ws.get_all_values()
+
+    if not values:
+        return {}
+
+    headers = values[0]
+
+    target_key = client_key(
+        client,
+        manager,
+    )
+
+    for row_num, row_values in enumerate(
+        values[1:],
         start=2,
     ):
         row = row_to_dict(
             headers,
-            values,
+            row_values,
         )
 
         if client_key(
-            row.get("client", ""),
-            row.get("manager", ""),
-        ) == client_key(
-            client,
-            manager,
-        ):
+            row.get(
+                "client",
+                "",
+            ),
+            row.get(
+                "manager",
+                "",
+            ),
+        ) == target_key:
             row["_row_num"] = row_num
             return row
 
@@ -694,54 +1044,101 @@ def update_client_state(
     updates = {}
 
     if last_contact is not None:
-        updates["last_contact"] = last_contact
+        updates[
+            "last_contact"
+        ] = last_contact
 
     if next_contact is not None:
-        updates["next_contact"] = next_contact
+        updates[
+            "next_contact"
+        ] = next_contact
 
     if last_result is not None:
-        updates["last_result"] = last_result
+        updates[
+            "last_result"
+        ] = last_result
+
+    if not updates:
+        return
 
     update_row_by_fields(
         clients_ws(),
-        state["_row_num"],
+        state[
+            "_row_num"
+        ],
         updates,
     )
 
 
-def get_today_tasks(manager):
-    ws = tasks_ws()
-    headers = get_headers(ws)
+# =========================================================
+# DAILY TASKS
+# =========================================================
 
-    today_str = today_local().strftime(
-        "%Y-%m-%d"
+def get_today_tasks(
+    manager,
+):
+    ws = tasks_ws()
+
+    values = ws.get_all_values()
+
+    if not values:
+        return []
+
+    headers = values[0]
+
+    today_str = (
+        today_local()
+        .strftime(
+            "%Y-%m-%d"
+        )
     )
 
     result = []
 
-    for row_num, values in enumerate(
-        ws.get_all_values()[1:],
+    for row_num, row_values in enumerate(
+        values[1:],
         start=2,
     ):
         row = row_to_dict(
             headers,
-            values,
+            row_values,
         )
 
         if (
-            str(row.get("task_date", "")).strip()
+            str(
+                row.get(
+                    "task_date",
+                    "",
+                )
+            ).strip()
             == today_str
-            and normalize_text(row.get("manager")).lower()
-            == normalize_text(manager).lower()
+            and normalize_text(
+                row.get(
+                    "manager"
+                )
+            ).lower()
+            == normalize_text(
+                manager
+            ).lower()
         ):
-            row["_row_num"] = row_num
-            result.append(row)
+            row[
+                "_row_num"
+            ] = row_num
+
+            result.append(
+                row
+            )
 
     return result
 
 
-def get_or_create_daily_tasks(manager, telegram_id):
-    existing = get_today_tasks(manager)
+def get_or_create_daily_tasks(
+    manager,
+    telegram_id,
+):
+    existing = get_today_tasks(
+        manager
+    )
 
     if existing:
         return existing
@@ -749,38 +1146,61 @@ def get_or_create_daily_tasks(manager, telegram_id):
     today = today_local()
 
     ws = clients_ws()
-    headers = get_headers(ws)
+
+    values = ws.get_all_values()
+
+    if not values:
+        return []
+
+    headers = values[0]
 
     candidates = []
 
-    for values in ws.get_all_values()[1:]:
+    for row_values in values[1:]:
         row = row_to_dict(
             headers,
-            values,
+            row_values,
         )
 
-        if str(row.get("active", "1")).strip() == "0":
+        if str(
+            row.get(
+                "active",
+                "1",
+            )
+        ).strip() == "0":
             continue
 
         if (
-            normalize_text(row.get("manager")).lower()
-            != normalize_text(manager).lower()
+            normalize_text(
+                row.get(
+                    "manager"
+                )
+            ).lower()
+            != normalize_text(
+                manager
+            ).lower()
         ):
             continue
 
         client = normalize_text(
-            row.get("client")
+            row.get(
+                "client"
+            )
         )
 
         if not client:
             continue
 
         category = normalize_category(
-            row.get("category")
+            row.get(
+                "category"
+            )
         )
 
         group_value = normalize_group(
-            row.get("group")
+            row.get(
+                "group"
+            )
         )
 
         interval = CONTACT_INTERVALS.get(
@@ -789,22 +1209,34 @@ def get_or_create_daily_tasks(manager, telegram_id):
         )
 
         last_contact = parse_date(
-            row.get("last_contact")
+            row.get(
+                "last_contact"
+            )
         )
 
         next_contact = parse_date(
-            row.get("next_contact")
+            row.get(
+                "next_contact"
+            )
         )
 
         last_order = parse_date(
-            row.get("last_order")
+            row.get(
+                "last_order"
+            )
         )
 
         last_request = parse_date(
-            row.get("last_request")
+            row.get(
+                "last_request"
+            )
         )
 
-        if next_contact and next_contact > today:
+        # Отложен до будущего.
+        if (
+            next_contact
+            and next_contact > today
+        ):
             continue
 
         if next_contact:
@@ -813,26 +1245,36 @@ def get_or_create_daily_tasks(manager, telegram_id):
         elif last_contact:
             due_date = (
                 last_contact
-                + timedelta(days=interval)
+                + timedelta(
+                    days=interval
+                )
             )
 
         else:
             anchors = [
-                x
-                for x in (
+                d
+                for d in (
                     last_order,
                     last_request,
                 )
-                if x
+                if d
             ]
 
             if anchors:
                 due_date = (
-                    max(anchors)
-                    + timedelta(days=interval)
+                    max(
+                        anchors
+                    )
+                    + timedelta(
+                        days=interval
+                    )
                 )
             else:
-                due_date = date(2000, 1, 1)
+                due_date = date(
+                    2000,
+                    1,
+                    1,
+                )
 
         if due_date > today:
             continue
@@ -853,16 +1295,27 @@ def get_or_create_daily_tasks(manager, telegram_id):
                     "Регулярный": 3,
                     "Стабильный": 2,
                     "Нерегулярный": 1,
-                }.get(category, 0),
+                }.get(
+                    category,
+                    0,
+                ),
             }
         )
 
     candidates.sort(
         key=lambda x: (
-            -x["overdue"],
-            -x["group_rank"],
-            -x["category_rank"],
-            x["client"].lower(),
+            -x[
+                "overdue"
+            ],
+            -x[
+                "group_rank"
+            ],
+            -x[
+                "category_rank"
+            ],
+            x[
+                "client"
+            ].lower(),
         )
     )
 
@@ -870,57 +1323,91 @@ def get_or_create_daily_tasks(manager, telegram_id):
         :CLIENTS_PER_DAY
     ]
 
+    if not selected:
+        return []
+
     tws = tasks_ws()
-    created_at = now_local().strftime(
-        "%d.%m.%Y %H:%M"
-    )
 
     today_str = today.strftime(
         "%Y-%m-%d"
     )
 
-    for item in selected:
-        tws.append_row(
-            [
-                today_str,
-                manager,
-                str(telegram_id),
-                item["client"],
-                "new",
-                created_at,
-                "",
+    created_at = now_local().strftime(
+        "%d.%m.%Y %H:%M"
+    )
+
+    rows = [
+        [
+            today_str,
+            manager,
+            str(
+                telegram_id
+            ),
+            item[
+                "client"
             ],
-            value_input_option="USER_ENTERED",
-        )
+            "new",
+            created_at,
+            "",
+        ]
+        for item in selected
+    ]
 
-    return get_today_tasks(manager)
+    # Одним запросом.
+    tws.append_rows(
+        rows,
+        value_input_option="USER_ENTERED",
+    )
+
+    return get_today_tasks(
+        manager
+    )
 
 
-def get_task_by_row(task_row):
+def get_task_by_row(
+    task_row,
+):
     ws = tasks_ws()
-    headers = get_headers(ws)
-    values = ws.row_values(task_row)
 
-    if not values:
+    values = ws.get_all_values()
+
+    if (
+        not values
+        or task_row < 2
+        or task_row > len(
+            values
+        )
+    ):
         return None
+
+    headers = values[0]
 
     row = row_to_dict(
         headers,
-        values,
+        values[
+            task_row - 1
+        ],
     )
 
-    row["_row_num"] = task_row
+    row[
+        "_row_num"
+    ] = task_row
+
     return row
 
 
-def mark_task_status(task_row, status):
+def mark_task_status(
+    task_row,
+    status,
+):
     update_row_by_fields(
         tasks_ws(),
         task_row,
         {
             "status": status,
             "completed_at": (
-                now_local().strftime(
+                now_local()
+                .strftime(
                     "%d.%m.%Y %H:%M"
                 )
                 if status in {
@@ -947,22 +1434,30 @@ def save_communication(
     task_row,
 ):
     next_text = (
-        next_contact.strftime("%d.%m.%Y")
+        next_contact.strftime(
+            "%d.%m.%Y"
+        )
         if next_contact
         else ""
     )
 
     communications_ws().append_row(
         [
-            today_local().strftime("%d.%m.%Y"),
+            today_local().strftime(
+                "%d.%m.%Y"
+            ),
             manager,
-            str(telegram_id),
+            str(
+                telegram_id
+            ),
             client,
             result,
             comment,
             next_text,
             "telegram",
-            now_local().strftime("%d.%m.%Y %H:%M"),
+            now_local().strftime(
+                "%d.%m.%Y %H:%M"
+            ),
         ],
         value_input_option="USER_ENTERED",
     )
@@ -970,7 +1465,9 @@ def save_communication(
     update_client_state(
         client=client,
         manager=manager,
-        last_contact=today_local().strftime("%d.%m.%Y"),
+        last_contact=today_local().strftime(
+            "%d.%m.%Y"
+        ),
         next_contact=next_text,
         last_result=result,
     )
@@ -989,21 +1486,30 @@ def save_postpone(
     next_contact,
     task_row,
 ):
-    next_text = next_contact.strftime(
-        "%d.%m.%Y"
+    next_text = (
+        next_contact
+        .strftime(
+            "%d.%m.%Y"
+        )
     )
 
     communications_ws().append_row(
         [
-            today_local().strftime("%d.%m.%Y"),
+            today_local().strftime(
+                "%d.%m.%Y"
+            ),
             manager,
-            str(telegram_id),
+            str(
+                telegram_id
+            ),
             client,
             "Отложено",
             reason,
             next_text,
             "telegram",
-            now_local().strftime("%d.%m.%Y %H:%M"),
+            now_local().strftime(
+                "%d.%m.%Y %H:%M"
+            ),
         ],
         value_input_option="USER_ENTERED",
     )
@@ -1012,7 +1518,9 @@ def save_postpone(
         client=client,
         manager=manager,
         next_contact=next_text,
-        last_result=f"Отложено: {reason}",
+        last_result=(
+            f"Отложено: {reason}"
+        ),
     )
 
     mark_task_status(
@@ -1025,24 +1533,32 @@ def save_postpone(
 # KEYBOARDS
 # =========================================================
 
-def client_actions_keyboard(task_row):
+def client_actions_keyboard(
+    task_row,
+):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text="✅ Связался",
-                    callback_data=f"contact:{task_row}",
+                    callback_data=(
+                        f"contact:{task_row}"
+                    ),
                 ),
                 InlineKeyboardButton(
                     text="⏰ Отложить",
-                    callback_data=f"postpone:{task_row}",
+                    callback_data=(
+                        f"postpone:{task_row}"
+                    ),
                 ),
             ]
         ]
     )
 
 
-def result_keyboard(task_row):
+def result_keyboard(
+    task_row,
+):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -1053,38 +1569,51 @@ def result_keyboard(task_row):
                     ),
                 )
             ]
-            for code, title in RESULT_OPTIONS
+            for code, title
+            in RESULT_OPTIONS
         ]
     )
 
 
-def next_contact_keyboard(task_row):
+def next_contact_keyboard(
+    task_row,
+):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text="7 дней",
-                    callback_data=f"next:7:{task_row}",
+                    callback_data=(
+                        f"next:7:{task_row}"
+                    ),
                 ),
                 InlineKeyboardButton(
                     text="14 дней",
-                    callback_data=f"next:14:{task_row}",
+                    callback_data=(
+                        f"next:14:{task_row}"
+                    ),
                 ),
             ],
             [
                 InlineKeyboardButton(
                     text="30 дней",
-                    callback_data=f"next:30:{task_row}",
+                    callback_data=(
+                        f"next:30:{task_row}"
+                    ),
                 ),
                 InlineKeyboardButton(
                     text="60 дней",
-                    callback_data=f"next:60:{task_row}",
+                    callback_data=(
+                        f"next:60:{task_row}"
+                    ),
                 ),
             ],
             [
                 InlineKeyboardButton(
                     text="📅 Выбрать дату",
-                    callback_data=f"next_custom:{task_row}",
+                    callback_data=(
+                        f"next_custom:{task_row}"
+                    ),
                 )
             ],
         ]
@@ -1108,7 +1637,12 @@ async def send_today_tasks(
     active = [
         task
         for task in tasks
-        if str(task.get("status", "")).strip()
+        if str(
+            task.get(
+                "status",
+                "",
+            )
+        ).strip()
         not in {
             "done",
             "postponed",
@@ -1118,8 +1652,12 @@ async def send_today_tasks(
     if not active:
         await bot.send_message(
             telegram_id,
-            "✅ На сегодня клиентов для обязательного контакта нет.",
+            (
+                "✅ На сегодня клиентов "
+                "для обязательного контакта нет."
+            ),
         )
+
         return
 
     await bot.send_message(
@@ -1131,17 +1669,50 @@ async def send_today_tasks(
         ),
     )
 
+    # CLIENTS читаем один раз для всей тройки.
+    cws = clients_ws()
+    cvalues = cws.get_all_values()
+
+    states = {}
+
+    if cvalues:
+        cheaders = cvalues[0]
+
+        for row_values in cvalues[1:]:
+            row = row_to_dict(
+                cheaders,
+                row_values,
+            )
+
+            states[
+                client_key(
+                    row.get(
+                        "client",
+                        "",
+                    ),
+                    row.get(
+                        "manager",
+                        "",
+                    ),
+                )
+            ] = row
+
     for index, task in enumerate(
         active,
         start=1,
     ):
         client = normalize_text(
-            task.get("client")
+            task.get(
+                "client"
+            )
         )
 
-        state = get_client_state(
-            client,
-            manager,
+        state = states.get(
+            client_key(
+                client,
+                manager,
+            ),
+            {},
         )
 
         await bot.send_message(
@@ -1155,7 +1726,11 @@ async def send_today_tasks(
                 f"Последний запрос: {pretty_date(state.get('last_request'))}"
             ),
             reply_markup=client_actions_keyboard(
-                int(task["_row_num"])
+                int(
+                    task[
+                        "_row_num"
+                    ]
+                )
             ),
         )
 
@@ -1164,12 +1739,25 @@ async def send_today_tasks(
 # HANDLERS
 # =========================================================
 
-def register_attention_handlers(dp, bot):
-    @dp.message(Command("register"))
-    async def register(message: Message):
+def register_attention_handlers(
+    dp,
+    bot,
+):
+    @dp.message(
+        Command(
+            "register"
+        )
+    )
+    async def register(
+        message: Message,
+    ):
         manager = (
             message.text
-            .replace("/register", "", 1)
+            .replace(
+                "/register",
+                "",
+                1,
+            )
             .strip()
         )
 
@@ -1179,6 +1767,7 @@ def register_attention_handlers(dp, bot):
                 "Например:\n"
                 "<code>/register Лилия Буглак</code>"
             )
+
             return
 
         register_manager(
@@ -1191,15 +1780,21 @@ def register_attention_handlers(dp, bot):
             f"<b>{manager}</b>"
         )
 
-    @dp.message(Command("status"))
-    async def status(message: Message):
+    @dp.message(
+        Command(
+            "status"
+        )
+    )
+    async def status(
+        message: Message,
+    ):
         manager = get_manager_by_telegram_id(
             message.from_user.id
         )
 
         if manager:
             await message.answer(
-                f"✅ Вы зарегистрированы как:\n"
+                "✅ Вы зарегистрированы как:\n"
                 f"<b>{manager}</b>"
             )
         else:
@@ -1208,8 +1803,14 @@ def register_attention_handlers(dp, bot):
                 "<code>/register ФИО</code>"
             )
 
-    @dp.message(Command("today"))
-    async def today(message: Message):
+    @dp.message(
+        Command(
+            "today"
+        )
+    )
+    async def today(
+        message: Message,
+    ):
         manager = get_manager_by_telegram_id(
             message.from_user.id
         )
@@ -1219,6 +1820,7 @@ def register_attention_handlers(dp, bot):
                 "Сначала выполните:\n"
                 "<code>/register ФИО</code>"
             )
+
             return
 
         await send_today_tasks(
@@ -1227,19 +1829,29 @@ def register_attention_handlers(dp, bot):
             manager,
         )
 
-    @dp.callback_query(F.data.startswith("contact:"))
-    async def contact(callback: CallbackQuery):
+    @dp.callback_query(
+        F.data.startswith(
+            "contact:"
+        )
+    )
+    async def contact(
+        callback: CallbackQuery,
+    ):
         task_row = int(
-            callback.data.split(":")[1]
+            callback.data
+            .split(":")[1]
         )
 
-        task = get_task_by_row(task_row)
+        task = get_task_by_row(
+            task_row
+        )
 
         if not task:
             await callback.answer(
                 "Задание не найдено",
                 show_alert=True,
             )
+
             return
 
         await callback.message.answer(
@@ -1254,13 +1866,21 @@ def register_attention_handlers(dp, bot):
 
         await callback.answer()
 
-    @dp.callback_query(F.data.startswith("result:"))
+    @dp.callback_query(
+        F.data.startswith(
+            "result:"
+        )
+    )
     async def result(
         callback: CallbackQuery,
         state: FSMContext,
     ):
         _, result_code, task_row_text = (
-            callback.data.split(":", 2)
+            callback.data
+            .split(
+                ":",
+                2,
+            )
         )
 
         task_row = int(
@@ -1270,6 +1890,14 @@ def register_attention_handlers(dp, bot):
         task = get_task_by_row(
             task_row
         )
+
+        if not task:
+            await callback.answer(
+                "Задание не найдено",
+                show_alert=True,
+            )
+
+            return
 
         manager = get_manager_by_telegram_id(
             callback.from_user.id
@@ -1284,7 +1912,9 @@ def register_attention_handlers(dp, bot):
 
         await state.update_data(
             task_row=task_row,
-            client=task.get("client"),
+            client=task.get(
+                "client"
+            ),
             manager=manager,
             result=result_title,
         )
@@ -1300,7 +1930,9 @@ def register_attention_handlers(dp, bot):
 
         await callback.answer()
 
-    @dp.message(ContactFlow.waiting_comment)
+    @dp.message(
+        ContactFlow.waiting_comment
+    )
     async def comment(
         message: Message,
         state: FSMContext,
@@ -1308,7 +1940,8 @@ def register_attention_handlers(dp, bot):
         data = await state.get_data()
 
         comment_text = (
-            message.text or ""
+            message.text
+            or ""
         ).strip()
 
         if comment_text == "-":
@@ -1321,17 +1954,28 @@ def register_attention_handlers(dp, bot):
         await message.answer(
             "Когда вернуться к клиенту?",
             reply_markup=next_contact_keyboard(
-                int(data["task_row"])
+                int(
+                    data[
+                        "task_row"
+                    ]
+                )
             ),
         )
 
-    @dp.callback_query(F.data.startswith("next:"))
+    @dp.callback_query(
+        F.data.startswith(
+            "next:"
+        )
+    )
     async def next_contact(
         callback: CallbackQuery,
         state: FSMContext,
     ):
         _, days_text, task_row_text = (
-            callback.data.split(":", 2)
+            callback.data.split(
+                ":",
+                2,
+            )
         )
 
         data = await state.get_data()
@@ -1339,41 +1983,68 @@ def register_attention_handlers(dp, bot):
         next_date = (
             today_local()
             + timedelta(
-                days=int(days_text)
+                days=int(
+                    days_text
+                )
             )
         )
 
         save_communication(
-            client=data["client"],
-            manager=data["manager"],
+            client=data[
+                "client"
+            ],
+            manager=data[
+                "manager"
+            ],
             telegram_id=callback.from_user.id,
-            result=data["result"],
-            comment=data.get("comment", ""),
+            result=data[
+                "result"
+            ],
+            comment=data.get(
+                "comment",
+                "",
+            ),
             next_contact=next_date,
-            task_row=int(task_row_text),
+            task_row=int(
+                task_row_text
+            ),
         )
 
         await state.clear()
 
         await callback.message.answer(
             "✅ Контакт зафиксирован.\n"
-            f"Следующий: <b>{next_date.strftime('%d.%m.%Y')}</b>"
+            "Следующий: "
+            f"<b>{next_date.strftime('%d.%m.%Y')}</b>"
         )
 
         await callback.answer()
 
-    @dp.callback_query(F.data.startswith("postpone:"))
+    @dp.callback_query(
+        F.data.startswith(
+            "postpone:"
+        )
+    )
     async def postpone(
         callback: CallbackQuery,
         state: FSMContext,
     ):
         task_row = int(
-            callback.data.split(":")[1]
+            callback.data
+            .split(":")[1]
         )
 
         task = get_task_by_row(
             task_row
         )
+
+        if not task:
+            await callback.answer(
+                "Задание не найдено",
+                show_alert=True,
+            )
+
+            return
 
         manager = get_manager_by_telegram_id(
             callback.from_user.id
@@ -1381,7 +2052,9 @@ def register_attention_handlers(dp, bot):
 
         await state.update_data(
             task_row=task_row,
-            client=task.get("client"),
+            client=task.get(
+                "client"
+            ),
             manager=manager,
         )
 
@@ -1396,7 +2069,9 @@ def register_attention_handlers(dp, bot):
 
         await callback.answer()
 
-    @dp.message(ContactFlow.waiting_postpone_reason)
+    @dp.message(
+        ContactFlow.waiting_postpone_reason
+    )
     async def postpone_reason(
         message: Message,
         state: FSMContext,
@@ -1404,23 +2079,32 @@ def register_attention_handlers(dp, bot):
         data = await state.get_data()
 
         reason = (
-            message.text or ""
+            message.text
+            or ""
         ).strip()
 
-        # Для первой версии после причины
-        # откладываем на 14 дней.
         next_date = (
             today_local()
-            + timedelta(days=14)
+            + timedelta(
+                days=14
+            )
         )
 
         save_postpone(
-            client=data["client"],
-            manager=data["manager"],
+            client=data[
+                "client"
+            ],
+            manager=data[
+                "manager"
+            ],
             telegram_id=message.from_user.id,
             reason=reason,
             next_contact=next_date,
-            task_row=int(data["task_row"]),
+            task_row=int(
+                data[
+                    "task_row"
+                ]
+            ),
         )
 
         await state.clear()
@@ -1435,9 +2119,18 @@ def register_attention_handlers(dp, bot):
 # REPORT + SCHEDULER
 # =========================================================
 
-async def send_report(bot, chat_id):
+async def send_report(
+    bot,
+    chat_id,
+):
     ws = tasks_ws()
-    headers = get_headers(ws)
+
+    values = ws.get_all_values()
+
+    if not values:
+        return
+
+    headers = values[0]
 
     today_str = today_local().strftime(
         "%Y-%m-%d"
@@ -1445,17 +2138,27 @@ async def send_report(bot, chat_id):
 
     grouped = {}
 
-    for values in ws.get_all_values()[1:]:
+    for row_values in values[1:]:
         row = row_to_dict(
             headers,
-            values,
+            row_values,
         )
 
-        if str(row.get("task_date", "")).strip() != today_str:
+        if (
+            str(
+                row.get(
+                    "task_date",
+                    "",
+                )
+            ).strip()
+            != today_str
+        ):
             continue
 
         manager = normalize_text(
-            row.get("manager")
+            row.get(
+                "manager"
+            )
         )
 
         grouped.setdefault(
@@ -1467,17 +2170,37 @@ async def send_report(bot, chat_id):
             },
         )
 
-        grouped[manager]["total"] += 1
+        grouped[
+            manager
+        ][
+            "total"
+        ] += 1
 
-        if str(row.get("status", "")).strip() in {
+        if str(
+            row.get(
+                "status",
+                "",
+            )
+        ).strip() in {
             "done",
             "postponed",
         }:
-            grouped[manager]["done"] += 1
+            grouped[
+                manager
+            ][
+                "done"
+            ] += 1
+
         else:
-            grouped[manager]["pending"].append(
+            grouped[
+                manager
+            ][
+                "pending"
+            ].append(
                 normalize_text(
-                    row.get("client")
+                    row.get(
+                        "client"
+                    )
                 )
             )
 
@@ -1492,7 +2215,11 @@ async def send_report(bot, chat_id):
     for manager, info in grouped.items():
         icon = (
             "✅"
-            if info["done"] == info["total"]
+            if info[
+                "done"
+            ] == info[
+                "total"
+            ]
             else "⚠️"
         )
 
@@ -1504,7 +2231,9 @@ async def send_report(bot, chat_id):
     pending = []
 
     for manager, info in grouped.items():
-        for client in info["pending"]:
+        for client in info[
+            "pending"
+        ]:
             pending.append(
                 f"• {client} — {manager}"
             )
@@ -1520,30 +2249,47 @@ async def send_report(bot, chat_id):
 
     await bot.send_message(
         chat_id,
-        "\n".join(lines)[:4000],
+        "\n".join(
+            lines
+        )[:4000],
     )
 
 
-async def start_attention_scheduler(bot):
+async def start_attention_scheduler(
+    bot,
+):
     last_send = None
     last_report = None
 
     while True:
         try:
             now = now_local()
-            hhmm = now.strftime("%H:%M")
+            hhmm = now.strftime(
+                "%H:%M"
+            )
 
             if (
-                hhmm == DAILY_SEND_TIME
-                and last_send != now.date()
+                hhmm
+                == DAILY_SEND_TIME
+                and last_send
+                != now.date()
             ):
-                for item in get_active_managers():
+                managers = (
+                    get_active_managers()
+                )
+
+                for item in managers:
                     try:
                         await send_today_tasks(
                             bot,
-                            item["telegram_id"],
-                            item["manager"],
+                            item[
+                                "telegram_id"
+                            ],
+                            item[
+                                "manager"
+                            ],
                         )
+
                     except Exception:
                         traceback.print_exc()
 
@@ -1552,11 +2298,14 @@ async def start_attention_scheduler(bot):
             if (
                 REPORT_CHAT_ID
                 and hhmm == "18:00"
-                and last_report != now.date()
+                and last_report
+                != now.date()
             ):
                 await send_report(
                     bot,
-                    int(REPORT_CHAT_ID),
+                    int(
+                        REPORT_CHAT_ID
+                    ),
                 )
 
                 last_report = now.date()
@@ -1564,5 +2313,6 @@ async def start_attention_scheduler(bot):
         except Exception:
             traceback.print_exc()
 
-        await asyncio.sleep(30)
-
+        await asyncio.sleep(
+            30
+        )
