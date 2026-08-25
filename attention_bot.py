@@ -1282,6 +1282,13 @@ def get_or_create_daily_tasks(
             )
 
         else:
+            # Первый цикл работы:
+            # если коммуникация еще ни разу не зафиксирована,
+            # клиент сразу участвует в ежедневной выборке.
+            #
+            # Последний заказ/запрос используем только для приоритета:
+            # чем дольше не было коммерческой активности,
+            # тем выше клиент поднимается в очереди.
             anchors = [
                 d
                 for d in (
@@ -1292,13 +1299,9 @@ def get_or_create_daily_tasks(
             ]
 
             if anchors:
-                due_date = (
-                    max(
-                        anchors
-                    )
-                    + timedelta(
-                        days=interval
-                    )
+                due_date = min(
+                    max(anchors),
+                    today
                 )
             else:
                 due_date = date(
