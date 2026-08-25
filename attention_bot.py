@@ -300,33 +300,14 @@ def parse_date(value):
     if value is None:
         return None
 
-    # ВАЖНО: ловим pandas NaT / NaN раньше всех проверок
     try:
         if pd.isna(value):
             return None
     except Exception:
         pass
 
-    if isinstance(value, pd.Timestamp):
-        return value.date()
-
-    if isinstance(value, datetime):
-        return value.date()
-
-    if isinstance(value, date):
-        return value
-
-    text = normalize_text(value)
-
-    if not text or text.lower() in {
-        "nan",
-        "nat",
-        "none",
-    }:
-        return None
-
     parsed = pd.to_datetime(
-        text,
+        value,
         errors="coerce",
         dayfirst=True,
     )
@@ -339,12 +320,20 @@ def parse_date(value):
 
 def fmt_date(value):
     d = parse_date(value)
-    return d.strftime("%d.%m.%Y") if d else ""
+
+    if d is None:
+        return ""
+
+    return d.strftime("%d.%m.%Y")
 
 
 def pretty_date(value):
     d = parse_date(value)
-    return d.strftime("%d.%m.%Y") if d else "—"
+
+    if d is None:
+        return "—"
+
+    return d.strftime("%d.%m.%Y")
 
 
 def normalize_category(value):
