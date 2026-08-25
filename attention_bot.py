@@ -262,6 +262,11 @@ def row_to_dict(headers, values):
     )
 
 
+def get_headers(ws):
+    values = ws.get_all_values()
+    return values[0] if values else []
+
+
 def normalize_sheet_headers(
     ws,
     required_headers,
@@ -825,13 +830,23 @@ def register_manager(manager, telegram_id):
 
     headers = values[0]
 
+    missing_headers = [
+        h for h in MANAGER_HEADERS
+        if h not in headers
+    ]
+
+    if missing_headers:
+        headers = headers + missing_headers
+        end_cell = gspread.utils.rowcol_to_a1(1, len(headers))
+        ws.update(
+            f"A1:{end_cell}",
+            [headers],
+        )
+
     manager_norm = normalize_text(manager).lower()
     target_id = str(telegram_id).strip()
 
-    # Сначала ищем строку с этим Telegram ID
     telegram_row_num = None
-
-    # Потом строку с этим менеджером
     manager_row_num = None
 
     for row_num, row_values in enumerate(
@@ -860,8 +875,6 @@ def register_manager(manager, telegram_id):
         if saved_manager == manager_norm:
             manager_row_num = row_num
 
-    # Если этот Telegram уже был привязан к другому менеджеру —
-    # просто меняем менеджера в этой строке.
     if telegram_row_num:
         update_row_by_fields(
             ws,
@@ -874,8 +887,6 @@ def register_manager(manager, telegram_id):
         )
         return
 
-    # Если менеджер уже есть, но Telegram другой/пустой —
-    # обновляем его строку.
     if manager_row_num:
         update_row_by_fields(
             ws,
@@ -887,9 +898,6 @@ def register_manager(manager, telegram_id):
             },
         )
         return
-
-    # Иначе создаём новую строку.
-    headers = get_headers(ws)
 
     data = {
         "manager": manager,
@@ -905,7 +913,6 @@ def register_manager(manager, telegram_id):
         value_input_option="USER_ENTERED",
     )
 
-
 def get_manager_by_telegram_id(telegram_id):
     ws = managers_ws()
     values = ws.get_all_values()
@@ -914,18 +921,18 @@ def get_manager_by_telegram_id(telegram_id):
         return None
 
     headers = values[0]
-
-    target_id = f"'{telegram_id}".strip()
+    target_id = str(telegram_id).strip()
 
     for row_values in values[1:]:
-        row = row_to_dict(headers, row_values)
+        row = row_to_dict(
+            headers,
+            row_values,
+        )
 
         saved_id = str(
             row.get("telegram_id", "")
         ).strip().lstrip("'")
-        
-        # Google Sheets иногда возвращает числовой ID
-        # как "123456789.0"
+
         if saved_id.endswith(".0"):
             saved_id = saved_id[:-2]
 
@@ -935,14 +942,18 @@ def get_manager_by_telegram_id(telegram_id):
 
         if (
             saved_id == target_id
-            and active not in {"0", "false", "нет", "no"}
+            and active not in {
+                "0",
+                "false",
+                "нет",
+                "no",
+            }
         ):
             return normalize_text(
                 row.get("manager")
             )
 
     return None
-
 
 def get_active_managers():
     ws = managers_ws()
@@ -2336,3 +2347,4 @@ async def start_attention_scheduler(
         await asyncio.sleep(
             30
         )
+
