@@ -10,7 +10,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 from aiogram import F
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     Message,
     CallbackQuery,
@@ -2078,6 +2078,35 @@ def register_attention_handlers(
     dp,
     bot,
 ):
+    @dp.message(CommandStart())
+    async def start(
+        message: Message,
+    ):
+        telegram_id = message.from_user.id
+
+        manager = get_manager_by_telegram_id(
+            telegram_id
+        )
+
+        if manager:
+            await message.answer(
+                "👋 <b>Бот «Внимание на клиента» подключен</b>\n\n"
+                f"Вы зарегистрированы как: <b>{manager}</b>\n"
+                "Настройка завершена ✅\n\n"
+                "По вторникам, средам и четвергам "
+                "бот будет присылать клиентов для контакта."
+            )
+            return
+
+        await message.answer(
+            "👋 <b>Бот «Внимание на клиента» подключен</b>\n\n"
+            "Ваш Telegram ID:\n"
+            f"<code>{telegram_id}</code>\n\n"
+            "Пока ваш ID не привязан к менеджеру.\n"
+            "Передайте этот ID руководителю — "
+            "после привязки дополнительных действий не потребуется."
+        )
+
     @dp.message(
         Command(
             "register"
@@ -2100,7 +2129,9 @@ def register_attention_handlers(
             await message.answer(
                 "Укажи ФИО менеджера.\n"
                 "Например:\n"
-                "<code>/register Лилия Буглак</code>"
+                "<code>/register Лилия Буглак</code>\n\n"
+                "Обычным сотрудникам эта команда не нужна — "
+                "привязку может заранее сделать руководитель."
             )
 
             return
@@ -2147,8 +2178,11 @@ def register_attention_handlers(
             )
         else:
             await message.answer(
-                "⚠️ Сначала выполните:\n"
-                "<code>/register ФИО</code>"
+                "⚠️ Ваш Telegram пока не привязан к менеджеру.\n\n"
+                "Ваш Telegram ID:\n"
+                f"<code>{message.from_user.id}</code>\n\n"
+                "Передайте этот ID руководителю. "
+                "Самостоятельно регистрироваться не нужно."
             )
 
     @dp.message(
@@ -2165,8 +2199,11 @@ def register_attention_handlers(
 
         if not manager:
             await message.answer(
-                "Сначала выполните:\n"
-                "<code>/register ФИО</code>"
+                "⚠️ Ваш Telegram пока не привязан к менеджеру.\n\n"
+                "Ваш Telegram ID:\n"
+                f"<code>{message.from_user.id}</code>\n\n"
+                "Передайте этот ID руководителю. "
+                "Самостоятельно регистрироваться не нужно."
             )
 
             return
@@ -2967,3 +3004,4 @@ async def start_attention_scheduler(
         await asyncio.sleep(
             30
         )
+
