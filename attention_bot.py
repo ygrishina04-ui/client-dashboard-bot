@@ -2216,6 +2216,169 @@ def register_attention_handlers(
 
     @dp.message(
         Command(
+            "send_now"
+        )
+    )
+    async def send_now(
+        message: Message,
+    ):
+        if (
+            REPORT_CHAT_ID
+            and str(message.chat.id)
+            != str(REPORT_CHAT_ID)
+        ):
+            await message.answer(
+                "⚠️ Команда доступна только руководителю."
+            )
+            return
+
+        # После команды можно указать ФИО, которые нужно исключить.
+        # Например:
+        # /send_now Буглак Лилия
+        command_text = (
+            message.text
+            or ""
+        ).strip()
+
+        exclude_text = (
+            command_text
+            .replace(
+                "/send_now",
+                "",
+                1,
+            )
+            .strip()
+        )
+
+        excluded = []
+
+        if exclude_text:
+            # Можно перечислить несколько ФИО через запятую.
+            excluded = [
+                normalize_text(item)
+                for item in exclude_text.split(",")
+                if normalize_text(item)
+            ]
+
+        def is_excluded(manager_name):
+            for item in excluded:
+                if manager_names_match(
+                    manager_name,
+                    item,
+                ):
+                    return True
+            return False
+
+        managers = get_active_managers()
+
+        sent = []
+        skipped = []
+        failed = []
+
+        await message.answer(
+            "📤 Запускаю ручную рассылку..."
+        )
+
+        for item in managers:
+            manager = item[
+                "manager"
+            ]
+
+            if is_excluded(
+                manager
+            ):
+                skipped.append(
+                    f"{manager} — исключен вручную"
+                )
+                continue
+
+            # Если этому менеджеру задания на сегодня уже создавались,
+            # повторно не рассылаем.
+            existing = get_today_tasks(
+                manager
+            )
+
+            if existing:
+                skipped.append(
+                    f"{manager} — задания на сегодня уже есть"
+                )
+                continue
+
+            try:
+                await send_today_tasks(
+                    bot,
+                    item[
+                        "telegram_id"
+                    ],
+                    manager,
+                )
+
+                sent.append(
+                    manager
+                )
+
+            except Exception as e:
+                traceback.print_exc()
+
+                failed.append(
+                    f"{manager}: {type(e).__name__}"
+                )
+
+        lines = [
+            "✅ <b>Ручная рассылка завершена</b>",
+            "",
+            f"Отправлено: <b>{len(sent)}</b>",
+            f"Пропущено: <b>{len(skipped)}</b>",
+            f"Ошибок: <b>{len(failed)}</b>",
+        ]
+
+        if sent:
+            lines.extend(
+                [
+                    "",
+                    "<b>Получили:</b>",
+                    *[
+                        f"• {name}"
+                        for name in sent
+                    ],
+                ]
+            )
+
+        if skipped:
+            lines.extend(
+                [
+                    "",
+                    "<b>Пропущены:</b>",
+                    *[
+                        f"• {item}"
+                        for item in skipped
+                    ],
+                ]
+            )
+
+        if failed:
+            lines.extend(
+                [
+                    "",
+                    "<b>Не удалось отправить:</b>",
+                    *[
+                        f"• {item}"
+                        for item in failed
+                    ],
+                    "",
+                    "Если сотрудник еще ни разу не нажимал Start, "
+                    "Telegram не позволит боту написать ему первым.",
+                ]
+            )
+
+        await message.answer(
+            "\n".join(
+                lines
+            )[:4000]
+        )
+
+    @dp.message(
+        Command(
             "report"
         )
     )
@@ -2308,10 +2471,12 @@ def register_attention_handlers(
             ),
         )
 
-        # Сохраняем всю цепочку сообщений по этому клиенту.
+        # Сохраняем и исходную карточку клиента, и всю дальнейшую цепочку.
+        # Поэтому после завершения карточка тоже гарантированно исчезает.
         await state.update_data(
             chain_message_ids=[
-                prompt_message.message_id
+                callback.message.message_id,
+                prompt_message.message_id,
             ]
         )
 
@@ -2555,7 +2720,10 @@ def register_attention_handlers(
                 "client"
             ),
             manager=manager,
-            chain_message_ids=[],
+            # Сразу запоминаем исходную карточку клиента.
+            chain_message_ids=[
+                callback.message.message_id
+            ],
         )
 
         await state.set_state(
@@ -3004,4 +3172,3 @@ async def start_attention_scheduler(
         await asyncio.sleep(
             30
         )
-
