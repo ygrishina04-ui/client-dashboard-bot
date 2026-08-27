@@ -1,3 +1,4 @@
+
 import os
 import json
 import asyncio
@@ -1927,6 +1928,394 @@ def next_contact_keyboard(
     )
 
 
+
+# =========================================================
+# BULK / QUOTA-SAFE SEND HELPERS
+# =========================================================
+
+def load_clients_snapshot():
+    """
+    Одно чтение листа CLIENTS для массовой рассылки.
+    Возвращает:
+    - ws
+    - headers
+    - rows
+    """
+    ws = clients_ws()
+    values = ws.get_all_values()
+
+    if not values:
+        return ws, [], []
+
+    return ws, values[0], values[1:]
+
+
+def load_tasks_snapshot():
+    """
+    Одно чтение DAILY_TASKS для массовой рассылки.
+    """
+    ws = tasks_ws()
+    values = ws.get_all_values()
+
+    if not values:
+        return ws, TASK_HEADERS, []
+
+    return ws, values[0], values[1:]
+
+
+def build_candidates_from_snapshot(
+    manager,
+    client_headers,
+    client_rows,
+):
+    today = today_local()
+    candidates = []
+
+    for row_values in client_rows:
+        row = row_to_dict(
+            client_headers,
+            row_values,
+        )
+
+        if str(
+            row.get(
+                "active",
+                "1",
+            )
+        ).strip() == "0":
+            continue
+
+        if not manager_names_match(
+            row.get("manager"),
+            manager,
+        ):
+            continue
+
+        client = normalize_text(
+            row.get("client")
+        )
+
+        if not client:
+            continue
+
+        category = normalize_category(
+            row.get("category")
+        )
+
+        group_value = normalize_group(
+            row.get("group")
+        )
+
+        interval = CONTACT_INTERVALS.get(
+            category,
+            30,
+        )
+
+        last_contact = parse_date(
+            row.get("last_contact")
+        )
+
+        next_contact = parse_date(
+            row.get("next_contact")
+        )
+
+        last_order = parse_date(
+            row.get("last_order")
+        )
+
+        last_request = parse_date(
+            row.get("last_request")
+        )
+
+        # Если был заказ ИЛИ запрос за последние 25 дней —
+        # клиента не берем.
+        recent_order = (
+            last_order is not None
+            and (today - last_order).days <= 25
+        )
+
+        recent_request = (
+            last_request is not None
+            and (today - last_request).days <= 25
+        )
+
+        if recent_order or recent_request:
+            continue
+
+        # Отложен на будущую дату.
+        if next_contact and next_contact > today:
+            continue
+
+        if next_contact:
+            due_date = next_contact
+
+        elif last_contact:
+            due_date = (
+                last_contact
+                + timedelta(
+                    days=interval
+                )
+            )
+
+            if due_date > today:
+                continue
+
+        else:
+            anchors = [
+                d
+                for d in (
+                    last_order,
+                    last_request,
+                )
+                if d
+            ]
+
+            due_date = (
+                max(anchors)
+                if anchors
+                else date(
+                    2000,
+                    1,
+                    1,
+                )
+            )
+
+        overdue_days = (
+            today - due_date
+        ).days
+
+        candidates.append(
+            {
+                "client": client,
+                "manager": manager,
+                "category": category,
+                "group": group_value,
+                "overdue": overdue_days,
+                "group_rank": GROUP_PRIORITY.get(
+                    group_value,
+                    0,
+                ),
+                "category_rank": {
+                    "Регулярный": 3,
+                    "Стабильный": 2,
+                    "Нерегулярный": 1,
+                }.get(
+                    category,
+                    0,
+                ),
+                "state": row,
+            }
+        )
+
+    candidates.sort(
+        key=lambda x: (
+            -x["overdue"],
+            -x["group_rank"],
+            -x["category_rank"],
+            x["client"].lower(),
+        )
+    )
+
+    return candidates[
+        :CLIENTS_PER_DAY
+    ]
+
+
+def get_today_tasks_from_snapshot(
+    manager,
+    task_headers,
+    task_rows,
+):
+    today_str = today_local().strftime(
+        "%Y-%m-%d"
+    )
+
+    result = []
+
+    for row_num, row_values in enumerate(
+        task_rows,
+        start=2,
+    ):
+        row = row_to_dict(
+            task_headers,
+            row_values,
+        )
+
+        if (
+            str(
+                row.get(
+                    "task_date",
+                    "",
+                )
+            ).strip()
+            == today_str
+            and manager_names_match(
+                row.get("manager"),
+                manager,
+            )
+        ):
+            row["_row_num"] = row_num
+            result.append(row)
+
+    return result
+
+
+async def send_today_tasks_from_snapshot(
+    bot,
+    telegram_id,
+    manager,
+    client_headers,
+    client_rows,
+    task_headers,
+    task_rows,
+    tasks_ws_obj,
+):
+    """
+    Массовая версия отправки.
+    Никаких повторных чтений Google Sheets на каждого менеджера.
+    """
+
+    existing = get_today_tasks_from_snapshot(
+        manager,
+        task_headers,
+        task_rows,
+    )
+
+    if existing:
+        # Если задания уже есть, ничего повторно не отправляем.
+        return {
+            "sent": False,
+            "reason": "existing",
+            "count": len(existing),
+        }
+
+    selected = build_candidates_from_snapshot(
+        manager,
+        client_headers,
+        client_rows,
+    )
+
+    if not selected:
+        return {
+            "sent": False,
+            "reason": "no_candidates",
+            "count": 0,
+        }
+
+    today_str = today_local().strftime(
+        "%Y-%m-%d"
+    )
+
+    created_at = now_local().strftime(
+        "%d.%m.%Y %H:%M"
+    )
+
+    # Сначала создаем строки задач одним append_rows.
+    new_task_rows = []
+
+    for item in selected:
+        new_task_rows.append(
+            [
+                today_str,
+                manager,
+                str(telegram_id),
+                item["client"],
+                "new",
+                created_at,
+                "",
+                "",
+            ]
+        )
+
+    tasks_ws_obj.append_rows(
+        new_task_rows,
+        value_input_option="USER_ENTERED",
+    )
+
+    # Новые номера строк можно вычислить из текущего snapshot.
+    base_row_num = (
+        len(task_rows) + 2
+    )
+
+    await bot.send_message(
+        telegram_id,
+        (
+            "📋 <b>Клиенты на сегодня</b>\n\n"
+            f"Менеджер: <b>{manager}</b>\n"
+            f"Количество: <b>{len(selected)}</b>"
+        ),
+    )
+
+    card_updates = []
+
+    for index, item in enumerate(
+        selected,
+        start=1,
+    ):
+        task_row_num = (
+            base_row_num
+            + index
+            - 1
+        )
+
+        state = item[
+            "state"
+        ]
+
+        client = item[
+            "client"
+        ]
+
+        card_message = await bot.send_message(
+            telegram_id,
+            (
+                f"<b>{index}. {client}</b>\n"
+                f"Группа: <b>{normalize_group(state.get('group')) or '—'}</b>\n"
+                f"Признак: <b>{normalize_category(state.get('category'))}</b>\n"
+                f"Последний контакт: <b>{pretty_date(state.get('last_contact'))}</b>\n"
+                f"Последний заказ: {pretty_date(state.get('last_order'))}\n"
+                f"Последний запрос: {pretty_date(state.get('last_request'))}"
+            ),
+            reply_markup=client_actions_keyboard(
+                task_row_num
+            ),
+        )
+
+        # card_message_id — 8-я колонка.
+        card_updates.append(
+            {
+                "range": (
+                    f"H{task_row_num}:H{task_row_num}"
+                ),
+                "values": [
+                    [
+                        str(
+                            card_message.message_id
+                        )
+                    ]
+                ],
+            }
+        )
+
+    if card_updates:
+        tasks_ws_obj.batch_update(
+            card_updates,
+            value_input_option="USER_ENTERED",
+        )
+
+    # Обновляем локальный snapshot задач, чтобы следующий менеджер
+    # уже видел добавленные строки без повторного чтения Google.
+    task_rows.extend(
+        new_task_rows
+    )
+
+    return {
+        "sent": True,
+        "reason": "ok",
+        "count": len(selected),
+    }
+
+
 # =========================================================
 # SEND
 # =========================================================
@@ -2232,9 +2621,6 @@ def register_attention_handlers(
             )
             return
 
-        # После команды можно указать ФИО, которые нужно исключить.
-        # Например:
-        # /send_now Буглак Лилия
         command_text = (
             message.text
             or ""
@@ -2253,7 +2639,6 @@ def register_attention_handlers(
         excluded = []
 
         if exclude_text:
-            # Можно перечислить несколько ФИО через запятую.
             excluded = [
                 normalize_text(item)
                 for item in exclude_text.split(",")
@@ -2269,15 +2654,29 @@ def register_attention_handlers(
                     return True
             return False
 
+        await message.answer(
+            "📤 Запускаю ручную рассылку..."
+        )
+
+        # КЛЮЧЕВОЕ:
+        # Google Sheets читаем один раз на всю рассылку.
         managers = get_active_managers()
+
+        (
+            _clients_ws_obj,
+            client_headers,
+            client_rows,
+        ) = load_clients_snapshot()
+
+        (
+            tasks_ws_obj,
+            task_headers,
+            task_rows,
+        ) = load_tasks_snapshot()
 
         sent = []
         skipped = []
         failed = []
-
-        await message.answer(
-            "📤 Запускаю ручную рассылку..."
-        )
 
         for item in managers:
             manager = item[
@@ -2292,36 +2691,56 @@ def register_attention_handlers(
                 )
                 continue
 
-            # Если этому менеджеру задания на сегодня уже создавались,
-            # повторно не рассылаем.
-            existing = get_today_tasks(
-                manager
-            )
-
-            if existing:
-                skipped.append(
-                    f"{manager} — задания на сегодня уже есть"
-                )
-                continue
-
             try:
-                await send_today_tasks(
-                    bot,
-                    item[
+                result = await send_today_tasks_from_snapshot(
+                    bot=bot,
+                    telegram_id=item[
                         "telegram_id"
                     ],
-                    manager,
+                    manager=manager,
+                    client_headers=client_headers,
+                    client_rows=client_rows,
+                    task_headers=task_headers,
+                    task_rows=task_rows,
+                    tasks_ws_obj=tasks_ws_obj,
                 )
 
-                sent.append(
-                    manager
-                )
+                if result[
+                    "sent"
+                ]:
+                    sent.append(
+                        (
+                            f"{manager} — "
+                            f"{result['count']} клиент(а)"
+                        )
+                    )
+
+                elif result[
+                    "reason"
+                ] == "existing":
+                    skipped.append(
+                        f"{manager} — задания на сегодня уже есть"
+                    )
+
+                else:
+                    skipped.append(
+                        f"{manager} — нет подходящих клиентов"
+                    )
 
             except Exception as e:
                 traceback.print_exc()
 
                 failed.append(
-                    f"{manager}: {type(e).__name__}"
+                    (
+                        f"{manager}: "
+                        f"{type(e).__name__}"
+                    )
+                )
+
+                # Небольшая пауза при сетевой ошибке,
+                # чтобы не добивать квоту.
+                await asyncio.sleep(
+                    1
                 )
 
         lines = [
@@ -2338,8 +2757,8 @@ def register_attention_handlers(
                     "",
                     "<b>Получили:</b>",
                     *[
-                        f"• {name}"
-                        for name in sent
+                        f"• {item}"
+                        for item in sent
                     ],
                 ]
             )
@@ -2365,9 +2784,6 @@ def register_attention_handlers(
                         f"• {item}"
                         for item in failed
                     ],
-                    "",
-                    "Если сотрудник еще ни разу не нажимал Start, "
-                    "Telegram не позволит боту написать ему первым.",
                 ]
             )
 
