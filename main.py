@@ -1,73 +1,90 @@
 import os
 import asyncio
+import traceback
+
+from aiohttp import web
 
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from dashboard_service import (
-    register_dashboard_handlers,
-    start_web_app,
-    rebuild_from_storage,
-)
 from attention_bot import (
     register_attention_handlers,
     start_attention_scheduler,
-    sync_portfolio_from_excel,
 )
 
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+PORT = int(os.getenv("PORT", "10000"))
 
-TOKEN = os.getenv("BOT_TOKEN", "").strip()
-if not TOKEN:
+if not BOT_TOKEN:
     raise RuntimeError("Не задан BOT_TOKEN")
 
 bot = Bot(
-    TOKEN,
+    BOT_TOKEN,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML),
 )
+
 dp = Dispatcher(storage=MemoryStorage())
 
 
-async def main():
-    print("APP STARTING", flush=True)
+async def health(request):
+    return web.Response(text="OK")
 
-    # 1) Дашборд: загрузка 3 файлов, snooze, web-страница.
-    register_dashboard_handlers(
-        dp=dp,
-        bot=bot,
-        on_portfolio_uploaded=sync_portfolio_from_excel,
+
+async def start_web_app():
+    app = web.Application()
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    site = web.TCPSite(
+        runner,
+        "0.0.0.0",
+        PORT,
+    )
+    await site.start()
+
+    print(
+        f"WEB APP STARTED ON PORT {PORT}",
+        flush=True,
     )
 
-    # 2) "Внимание на клиента": /register, /today, кнопки, отчеты.
+
+async def main():
+    print(
+        "ATTENTION BOT STARTING",
+        flush=True,
+    )
+
     register_attention_handlers(
         dp=dp,
         bot=bot,
     )
 
-    # 3) Web service Render.
-    await start_web_app(bot)
-    print("WEB APP STARTED", flush=True)
+    await start_web_app()
 
-    # 4) Восстанавливаем последний дашборд после deploy/restart.
-    try:
-        await rebuild_from_storage(bot)
-    except Exception:
-        import traceback
-        print("Не удалось восстановить дашборд при старте:", flush=True)
-        traceback.print_exc()
-
-    # 5) Автоматическая ежедневная рассылка 3 клиентов.
     asyncio.create_task(
         start_attention_scheduler(bot)
     )
 
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("BOT POLLING STARTING", flush=True)
+    await bot.delete_webhook(
+        drop_pending_updates=True
+    )
 
-    await dp.start_polling(bot)
+    print(
+        "BOT POLLING STARTING",
+        flush=True,
+    )
+
+    try:
+        await dp.start_polling(bot)
+    except Exception:
+        traceback.print_exc()
+        raise
 
 
 if __name__ == "__main__":
     asyncio.run(main())
-
